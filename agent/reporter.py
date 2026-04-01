@@ -1,0 +1,108 @@
+# agent/reporter.py
+"""
+HTTP client para o servidor do Inventário TI.
+Todas as chamadas incluem o header X-Agent-Token.
+Nunca loga o token em texto claro — apenas os últimos 8 chars.
+"""
+
+import logging
+import socket
+from typing import Any
+
+import requests
+
+logger = logging.getLogger(__name__)
+
+TIMEOUT = 10  # segundos por request
+
+
+class Reporter:
+    def __init__(self, server_url: str, token: str):
+        self._base = server_url.rstrip('/')
+        self._token = token
+        self._session = requests.Session()
+        self._session.headers.update({
+            'X-Agent-Token': token,
+            'Content-Type': 'application/json',
+            'User-Agent': 'IN9USBAgent/1.0',
+        })
+
+    # -------------------------------------------------------------------------
+    # Helpers internos
+    # -------------------------------------------------------------------------
+
+    def _token_hint(self) -> str:
+        """Retorna apenas os últimos 8 chars do token para logs."""
+        return f'...{self._token[-8:]}' if len(self._token) >= 8 else '***'
+
+    def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        url = f'{self._base}{path}'
+        response = self._session.post(url, json=payload, timeout=TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+
+    def _get(self, path: str) -> dict[str, Any]:
+        url = f'{self._base}{path}'
+        response = self._session.get(url, timeout=TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+
+    # -------------------------------------------------------------------------
+    # Rotas do agente
+    # -------------------------------------------------------------------------
+
+    def register_new(self, hostname: str, mac_address: str | None, bios_serial: str | None) -> dict[str, Any]:
+        """
+        POST /api/agent/register/new — primeira instalação, sem token.
+        Retorna machine_id e token gerado pelo servidor.
+        """
+        url = f'{self._base}/api/agent/register/new'
+        payload: dict[str, Any] = {'hostname': hostname}
+        if mac_address:
+            payload['mac_address'] = mac_address
+        if bios_serial:
+            payload['bios_serial'] = bios_serial
+
+        # Esta rota é pública — não usa o header X-Agent-Token
+        resp = requests.post(url, json=payload, timeout=TIMEOUT,
+                             headers={'Content-Type': 'application/json',
+                                      'User-Agent': 'IN9USBAgent/1.0'})
+        resp.raise_for_status()
+        return resp.json()
+
+    def register(self, hostname: str, agent_version: str, specs: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/agent/register — atualiza specs e versão."""
+        logger.debug('Registrando agente (token: %s)', self._token_hint())
+        return self._post('/api/agent/register', {
+            'hostname': hostname,
+            'agent_version': agent_version,
+            'specs': specs,
+        })
+
+    def heartbeat(self) -> dict[str, Any]:
+        """POST /api/agent/heartbeat — atualiza last_seen."""
+        logger.debug('Heartbeat (token: %s)', self._token_hint())
+        return self._post('/api/agent/heartbeat', {})
+
+    def send_usb_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        """POST /api/agent/usb-event — reporta um evento USB."""
+        logger.debug('Enviando evento USB: %s %s', event.get('event_type'), event.get('friendly_name'))
+        return self._post('/api/agent/usb-event', event)
+
+    def check_version(self) -> dict[str, Any]:
+        """GET /api/agent/version — verifica se há update disponível."""
+        return self._get('/api/agent/version')
+
+    # -------------------------------------------------------------------------
+    # Utilitários de conectividade
+    # -------------------------------------------------------------------------
+
+    def is_online(self) -> bool:
+        """Verifica conectividade básica com o servidor (TCP, sem auth)."""
+        try:
+            host = self._base.split('://')[-1].split('/')[0].split(':')[0]
+            port = 443 if self._base.startswith('https') else 80
+            with socket.create_connection((host, port), timeout=3):
+                return True
+        except OSError:
+            return False

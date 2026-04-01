@@ -1,0 +1,249 @@
+# agent/service.py
+"""
+Windows Service — IN9USBAgent
+
+Instala como serviço:
+    python -m agent install
+    python -m agent start
+
+Remove:
+    python -m agent remove
+
+Roda standalone (sem serviço):
+    python -m agent run
+"""
+
+import logging
+import threading
+import time
+import socket
+from pathlib import Path
+from typing import Any
+
+from .local_db import LocalDB
+from .reporter import Reporter
+from .usb_monitor import UsbMonitor
+from .hasher import compute_hash_id
+from .classifier import classify
+from .specs import capture_machine_specs
+
+logger = logging.getLogger(__name__)
+
+HEARTBEAT_INTERVAL = 300  # 5 minutos
+FLUSH_INTERVAL = 30       # tenta enviar buffer offline a cada 30s
+AGENT_VERSION = '1.0.0'
+
+
+class AgentCore:
+    """
+    Lógica principal do agente — funciona tanto como Windows Service
+    quanto em modo standalone (para desenvolvimento/teste).
+    """
+
+    def __init__(self, db: LocalDB):
+        self._db = db
+        self._reporter: Reporter | None = None
+        self._monitor: UsbMonitor | None = None
+        self._stop_event = threading.Event()
+
+    # -------------------------------------------------------------------------
+    # Ciclo de vida
+    # -------------------------------------------------------------------------
+
+    def start(self) -> None:
+        logger.info('IN9USBAgent v%s iniciando...', AGENT_VERSION)
+
+        reporter = self._build_reporter()
+        if reporter is None:
+            logger.error('Configuração incompleta — server_url ou token ausentes. '
+                         'Execute o install.bat para configurar.')
+            return
+
+        self._reporter = reporter
+
+        # Registro/update no servidor
+        self._do_register()
+
+        # Iniciar monitor USB
+        self._monitor = UsbMonitor(on_event=self._handle_usb_event)
+        self._monitor.start()
+
+        # Loops de heartbeat e flush offline em threads separadas
+        threading.Thread(target=self._heartbeat_loop, daemon=True, name='HeartbeatThread').start()
+        threading.Thread(target=self._flush_loop, daemon=True, name='FlushThread').start()
+
+        logger.info('Agente em execução. Monitorando eventos USB...')
+
+    def stop(self) -> None:
+        logger.info('Parando IN9USBAgent...')
+        self._stop_event.set()
+        if self._monitor:
+            self._monitor.stop()
+        logger.info('Agente parado.')
+
+    def wait(self) -> None:
+        """Bloqueia até stop() ser chamado (uso em modo standalone)."""
+        self._stop_event.wait()
+
+    # -------------------------------------------------------------------------
+    # Configuração
+    # -------------------------------------------------------------------------
+
+    def _build_reporter(self) -> Reporter | None:
+        server_url = self._db.server_url
+        token = self._db.token
+        if not server_url or not token:
+            return None
+        return Reporter(server_url=server_url, token=token)
+
+    # -------------------------------------------------------------------------
+    # Registro
+    # -------------------------------------------------------------------------
+
+    def _do_register(self) -> None:
+        assert self._reporter is not None
+        try:
+            specs = capture_machine_specs()
+            hostname = specs.get('hostname') or socket.gethostname()
+            resp = self._reporter.register(
+                hostname=hostname,
+                agent_version=AGENT_VERSION,
+                specs=specs,
+            )
+            logger.info('Registro OK — status: %s', resp.get('status'))
+            if resp.get('machine_id'):
+                self._db.machine_id = resp['machine_id']
+        except Exception as exc:
+            logger.warning('Falha no registro (tentará no próximo heartbeat): %s', exc)
+
+    # -------------------------------------------------------------------------
+    # Heartbeat loop
+    # -------------------------------------------------------------------------
+
+    def _heartbeat_loop(self) -> None:
+        while not self._stop_event.wait(HEARTBEAT_INTERVAL):
+            if self._reporter:
+                try:
+                    self._reporter.heartbeat()
+                    logger.debug('Heartbeat enviado')
+                except Exception as exc:
+                    logger.warning('Heartbeat falhou: %s', exc)
+
+    # -------------------------------------------------------------------------
+    # Flush offline loop
+    # -------------------------------------------------------------------------
+
+    def _flush_loop(self) -> None:
+        while not self._stop_event.wait(FLUSH_INTERVAL):
+            pending = self._db.pending_count()
+            if pending == 0 or self._reporter is None:
+                continue
+            if not self._reporter.is_online():
+                logger.debug('%d eventos pendentes — servidor offline', pending)
+                continue
+            self._flush_pending()
+
+    def _flush_pending(self) -> None:
+        assert self._reporter is not None
+        batch = self._db.pop_pending_events()
+        if not batch:
+            return
+
+        sent_ids: list[int] = []
+        for event_id, payload in batch:
+            try:
+                self._reporter.send_usb_event(payload)
+                sent_ids.append(event_id)
+            except Exception as exc:
+                logger.warning('Falha ao reenviar evento %d: %s', event_id, exc)
+                break  # parar no primeiro erro — tentar novamente no próximo ciclo
+
+        if sent_ids:
+            self._db.mark_sent(sent_ids)
+            logger.info('%d eventos pendentes enviados com sucesso', len(sent_ids))
+
+    # -------------------------------------------------------------------------
+    # Processamento de evento USB
+    # -------------------------------------------------------------------------
+
+    def _handle_usb_event(self, raw_event: dict[str, Any]) -> None:
+        vid: str = raw_event.get('vid', '0000')
+        pid: str = raw_event.get('pid', '0000')
+        serial: str | None = raw_event.get('serial')
+        friendly_name: str | None = raw_event.get('friendly_name')
+        class_guid: str | None = raw_event.get('class_guid')
+
+        hash_id, serial_is_stable = compute_hash_id(vid, pid, serial)
+        device_type = classify(class_guid, friendly_name, vid)
+
+        payload: dict[str, Any] = {
+            'event_type':    raw_event['event_type'],
+            'event_time':    raw_event['event_time'],
+            'vid':           vid,
+            'pid':           pid,
+            'serial':        serial,
+            'friendly_name': friendly_name,
+            'pnp_device_id': raw_event.get('pnp_device_id'),
+            'hash_id':       hash_id,
+            'device_type':   device_type,
+        }
+
+        # Salvar no buffer local antes de tentar enviar
+        self._db.enqueue_event(payload)
+
+        # Tentar envio imediato
+        if self._reporter and self._reporter.is_online():
+            try:
+                resp = self._reporter.send_usb_event(payload)
+                # Marcar como enviado (último evento enfileirado)
+                batch = self._db.pop_pending_events()
+                if batch:
+                    last_id = batch[-1][0]
+                    # marca apenas eventos cujo payload coincide (simplificado: marca o lote atual)
+                    self._db.mark_sent([eid for eid, _ in batch])
+                if resp.get('alert'):
+                    logger.warning('ALERTA gerado: %s', resp['alert'].get('message'))
+            except Exception as exc:
+                logger.warning('Falha ao enviar evento USB (buffered): %s', exc)
+
+
+# =============================================================================
+# Windows Service (pywin32)
+# =============================================================================
+
+try:
+    import win32serviceutil   # type: ignore[import]
+    import win32service       # type: ignore[import]
+    import win32event         # type: ignore[import]
+    import servicemanager     # type: ignore[import]
+
+    class IN9USBAgentService(win32serviceutil.ServiceFramework):
+        _svc_name_ = 'IN9USBAgent'
+        _svc_display_name_ = 'IN9 USB Agent'
+        _svc_description_ = 'Monitora conexões USB e reporta ao Inventário TI IN9 Automação'
+
+        def __init__(self, args: Any):
+            win32serviceutil.ServiceFramework.__init__(self, args)
+            self._stop_handle = win32event.CreateEvent(None, 0, 0, None)
+            self._db = LocalDB()
+            self._core = AgentCore(self._db)
+
+        def SvcStop(self) -> None:
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+            self._core.stop()
+            win32event.SetEvent(self._stop_handle)
+
+        def SvcDoRun(self) -> None:
+            servicemanager.LogMsg(
+                servicemanager.EVENTLOG_INFORMATION_TYPE,
+                servicemanager.PYS_SERVICE_STARTED,
+                (self._svc_name_, '')
+            )
+            self._core.start()
+            win32event.WaitForSingleObject(self._stop_handle, win32event.INFINITE)
+
+    _HAS_WIN32 = True
+
+except ImportError:
+    _HAS_WIN32 = False
+    IN9USBAgentService = None  # type: ignore[assignment,misc]
