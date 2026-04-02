@@ -160,7 +160,27 @@ Total de eventos capturados: 4
 
 ---
 
-## Etapa 9 — Buffer offline ⏳ Pendente
+## Etapa 9 — Buffer offline ✅
+
+**Método:** URL do servidor alterada temporariamente para `http://127.0.0.1:19999` (endereço inválido) para simular ausência de conectividade sem precisar desativar a rede.
+
+**9b — Agente com "offline":**
+```
+[WARNING] Falha no registro: HTTPConnectionPool(host='127.0.0.1', port=19999): Failed to establish a new connection
+[INFO] WMI watchers registrados — aguardando eventos USB...
+[INFO] DISCONNECTED — Dispositivo de Entrada USB [VID:1EA7 PID:9018]  (×3)
+[INFO] CONNECTED  — Dispositivo de Entrada USB [VID:1EA7 PID:9018]    (×1)
+```
+
+**9c — Buffer antes do flush:** 3 eventos pendentes
+
+**9d — Após restaurar URL e rodar agente:**
+```
+[INFO] Registro OK — status: active
+Buffer após flush: 0 eventos pendentes
+```
+
+Os 3 eventos foram reenviados automaticamente pelo `_flush_loop` (intervalo de 30s).
 
 ---
 
