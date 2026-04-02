@@ -57,8 +57,8 @@ class UsbMonitor:
             return
 
         c = wmi.WMI()
-        watcher_connect    = c.Win32_PnPEntity.watch_for('__InstanceCreationEvent')
-        watcher_disconnect = c.Win32_PnPEntity.watch_for('__InstanceDeletionEvent')
+        watcher_connect    = c.Win32_PnPEntity.watch_for('creation')
+        watcher_disconnect = c.Win32_PnPEntity.watch_for('deletion')
 
         logger.info('WMI watchers registrados — aguardando eventos USB...')
 
@@ -67,7 +67,7 @@ class UsbMonitor:
             try:
                 event = watcher_connect(timeout_ms=500)
                 if event:
-                    self._handle(event.NewValue, 'connected')
+                    self._handle(event, 'connected')
             except wmi.x_wmi_timed_out:
                 pass
             except Exception as exc:
@@ -77,7 +77,7 @@ class UsbMonitor:
             try:
                 event = watcher_disconnect(timeout_ms=500)
                 if event:
-                    self._handle(event.PreviousValue, 'disconnected')
+                    self._handle(event, 'disconnected')
             except wmi.x_wmi_timed_out:
                 pass
             except Exception as exc:
