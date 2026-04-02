@@ -64,6 +64,8 @@ class Reporter:
             payload['bios_serial'] = bios_serial
 
         # Esta rota é pública — não usa o header X-Agent-Token
+        # O token é enviado no body para o servidor armazená-lo
+        payload['token'] = self._token
         resp = requests.post(url, json=payload, timeout=TIMEOUT,
                              headers={'Content-Type': 'application/json',
                                       'User-Agent': 'IN9USBAgent/1.0'})

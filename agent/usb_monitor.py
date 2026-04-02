@@ -51,37 +51,47 @@ class UsbMonitor:
 
     def _watch_loop(self) -> None:
         try:
+            import pythoncom  # type: ignore[import]
             import wmi  # type: ignore[import]
         except ImportError:
             logger.error('wmi não disponível — UsbMonitor não funcionará neste ambiente')
             return
 
-        c = wmi.WMI()
-        watcher_connect    = c.Win32_PnPEntity.watch_for('creation')
-        watcher_disconnect = c.Win32_PnPEntity.watch_for('deletion')
+        pythoncom.CoInitialize()
+        try:
+            c = wmi.WMI()
+        except Exception as exc:
+            logger.error('Falha ao inicializar WMI: %s', exc)
+            pythoncom.CoUninitialize()
+            return
+        try:
+            watcher_connect    = c.Win32_PnPEntity.watch_for('creation')
+            watcher_disconnect = c.Win32_PnPEntity.watch_for('deletion')
 
-        logger.info('WMI watchers registrados — aguardando eventos USB...')
+            logger.info('WMI watchers registrados — aguardando eventos USB...')
 
-        while not self._stop_event.is_set():
-            # Conexão
-            try:
-                event = watcher_connect(timeout_ms=500)
-                if event:
-                    self._handle(event, 'connected')
-            except wmi.x_wmi_timed_out:
-                pass
-            except Exception as exc:
-                logger.warning('Erro no watcher_connect: %s', exc)
+            while not self._stop_event.is_set():
+                # Conexão
+                try:
+                    event = watcher_connect(timeout_ms=500)
+                    if event:
+                        self._handle(event, 'connected')
+                except wmi.x_wmi_timed_out:
+                    pass
+                except Exception as exc:
+                    logger.warning('Erro no watcher_connect: %s', exc)
 
-            # Desconexão
-            try:
-                event = watcher_disconnect(timeout_ms=500)
-                if event:
-                    self._handle(event, 'disconnected')
-            except wmi.x_wmi_timed_out:
-                pass
-            except Exception as exc:
-                logger.warning('Erro no watcher_disconnect: %s', exc)
+                # Desconexão
+                try:
+                    event = watcher_disconnect(timeout_ms=500)
+                    if event:
+                        self._handle(event, 'disconnected')
+                except wmi.x_wmi_timed_out:
+                    pass
+                except Exception as exc:
+                    logger.warning('Erro no watcher_disconnect: %s', exc)
+        finally:
+            pythoncom.CoUninitialize()
 
     # -------------------------------------------------------------------------
     # Processamento do evento

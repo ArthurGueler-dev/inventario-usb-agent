@@ -110,9 +110,10 @@ class AgentCore:
                 agent_version=AGENT_VERSION,
                 specs=specs,
             )
-            logger.info('Registro OK — status: %s', resp.get('status'))
-            if resp.get('machine_id'):
-                self._db.machine_id = resp['machine_id']
+            data = resp.get('data') or resp
+            logger.info('Registro OK — status: %s', data.get('status'))
+            if data.get('machine_id'):
+                self._db.machine_id = data['machine_id']
         except Exception as exc:
             logger.warning('Falha no registro (tentará no próximo heartbeat): %s', exc)
 
