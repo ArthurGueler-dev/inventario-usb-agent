@@ -6,6 +6,9 @@ on:
       - 'v*'          # dispara em: git tag v1.0.0 && git push --tags
   workflow_dispatch:  # permite rodar manualmente pelo GitHub UI
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
