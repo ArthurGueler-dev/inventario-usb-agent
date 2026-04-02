@@ -121,8 +121,6 @@ class TrayIcon:
         menu = pystray.Menu(
             pystray.MenuItem('IN9 USB Agent', None, enabled=False),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem('Abrir portal', self._open_portal),
-            pystray.Menu.SEPARATOR,
             pystray.MenuItem('Sair', self._quit),
         )
 
@@ -137,16 +135,6 @@ class TrayIcon:
     # -------------------------------------------------------------------------
     # Ações do menu
     # -------------------------------------------------------------------------
-
-    def _open_portal(self, icon, item) -> None:
-        try:
-            import webbrowser
-            from .local_db import LocalDB
-            db = LocalDB()
-            url = (db.server_url or 'https://inventario.in9automacao.com.br') + '/usb-monitoramento'
-            webbrowser.open(url)
-        except Exception as exc:
-            logger.debug('Falha ao abrir portal: %s', exc)
 
     def _quit(self, icon, item) -> None:
         logger.info('Saindo via menu do tray...')
