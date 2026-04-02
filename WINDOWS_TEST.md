@@ -3,6 +3,10 @@
 Este documento é para ser lido pelo Claude Code rodando no Windows.
 Siga cada etapa na ordem. Reporte erros exatamente como aparecerem.
 
+> **Etapas 1–5 já foram executadas com sucesso** (ver `RESULTADO_FASE5.md`).
+> Este documento foi atualizado para continuar a partir da **Etapa 6**.
+> As etapas anteriores estão mantidas para referência.
+
 ---
 
 ## Contexto do projeto
@@ -10,7 +14,7 @@ Siga cada etapa na ordem. Reporte erros exatamente como aparecerem.
 Agente Python que monitora eventos USB via WMI e reporta ao servidor do Inventário TI.
 - Repositório: este diretório
 - Stack: Python 3.11, wmi, pywin32, psutil, requests, sqlite3
-- Servidor backend: já implementado e rodando
+- Servidor backend: `https://inventario.in9automacao.com.br`
 
 ---
 
@@ -190,18 +194,22 @@ Se nenhum evento aparecer, reporte qualquer erro ou aviso no console.
 
 ## ETAPA 6 — Configurar conexão com o servidor
 
-Substitua os valores abaixo antes de executar:
+### 6a. Gerar token
 
-```bat
-python -m agent config --url http://IP-DO-SERVIDOR:3000 --token SEU-TOKEN-AQUI
-```
-
-Se não tiver token, gere um:
 ```bat
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Verifique o que foi salvo:
+Copie o token gerado — ele será usado nos próximos passos.
+
+### 6b. Salvar configuração
+
+```bat
+python -m agent config --url https://inventario.in9automacao.com.br --token TOKEN-GERADO-ACIMA
+```
+
+### 6c. Verificar o que foi salvo
+
 ```bat
 python -c "
 from agent.local_db import LocalDB
@@ -212,9 +220,36 @@ print('machine_id:', db.machine_id)
 "
 ```
 
+**Esperado:**
+```
+server_url: https://inventario.in9automacao.com.br
+token hint: ...XXXXXXXX
+machine_id: None
+```
+
+### 6d. Verificar conectividade com o servidor
+
+```bat
+python -c "
+import requests
+from agent.local_db import LocalDB
+db = LocalDB()
+resp = requests.get(
+    db.server_url + '/api/agent/version',
+    headers={'X-Agent-Token': db.token},
+    timeout=5
+)
+print('Status:', resp.status_code)
+print('Body:', resp.json())
+"
+```
+
+**Esperado:** status 200 ou 403 (pending ok) — qualquer resposta JSON confirma que o servidor está acessível.
+Se der `ConnectionError` ou timeout, reporte o erro completo.
+
 ---
 
-## ETAPA 7 — Registrar no servidor
+## ETAPA 7 — Registrar a máquina no servidor
 
 ```bat
 python -m agent register-new
@@ -222,63 +257,122 @@ python -m agent register-new
 
 **Esperado:**
 ```
-Registro OK: {'success': True, 'machine_id': '...', 'status': 'pending', ...}
+Registro OK: {'success': True, 'machine_id': 'uuid-...', 'status': 'pending', ...}
+Token recebido: ...XXXXXXXX
 ```
 
-Se falhar com erro de conexão, verifique:
-```bat
-python -c "
-import requests
-resp = requests.get('http://IP-DO-SERVIDOR:3000/api/agent/version',
-                    headers={'X-Agent-Token': 'SEU-TOKEN'},
-                    timeout=5)
-print(resp.status_code, resp.json())
-"
-```
+Reporte o `machine_id` retornado e o `status`.
+
+> Após este passo, o agente aparecerá como **pendente** em:
+> `https://inventario.in9automacao.com.br/usb-agentes`
+>
+> **NÃO aprove ainda** — continue os testes primeiro e aprove ao chegar na Etapa 8.
 
 ---
 
-## ETAPA 8 — Rodar o agente em modo standalone
+## ETAPA 8 — Rodar o agente em modo standalone (aprovado)
+
+### 8a. Aprovar o agente no portal
+
+Acesse `https://inventario.in9automacao.com.br/usb-agentes` e aprove o agente `arthur-desktop`.
+
+### 8b. Iniciar o agente
 
 ```bat
 python -m agent run
 ```
 
-Enquanto o agente roda, pluge e desplugue um pendrive.
+Deixe rodando e pluge um pendrive. Aguarde ver os eventos no console.
 
-**Esperado no console:**
+**Esperado:**
 ```
 [INFO] IN9USBAgent v1.0.0 iniciando...
-[INFO] Registro OK — status: pending
+[INFO] Registro OK — status: active
 [INFO] WMI watchers registrados — aguardando eventos USB...
-[INFO] CONNECTED — SanDisk Ultra [VID:0781 PID:5581]
-[INFO] Enviando evento USB: connected SanDisk Ultra
+[INFO] CONNECTED — <nome do dispositivo> [VID:XXXX PID:XXXX]
+[INFO] Enviando evento USB: connected <nome>
 ```
 
-Interrompa com `Ctrl+C` após testar.
+### 8c. Confirmar no portal
+
+Com o agente rodando, acesse `https://inventario.in9automacao.com.br/usb-monitoramento`
+→ aba **"Feed de Eventos"** e confirme que os eventos aparecem.
+
+Reporte:
+- O que apareceu no console do agente
+- Se os eventos chegaram no portal (sim/não)
+- Qualquer erro HTTP (ex: 403, 500)
+
+Interrompa com `Ctrl+C` após confirmar.
 
 ---
 
-## ETAPA 9 — Verificar buffer offline
+## ETAPA 9 — Testar buffer offline
 
-Simule envio offline desconectando da rede antes de plurar o USB, depois reconectando:
+Objetivo: garantir que eventos gerados sem conexão são reenviados quando a conexão volta.
+
+### 9a. Desativar a rede
+
+Desative o adaptador de rede (ou desconecte o cabo/WiFi).
+
+### 9b. Rodar o agente e gerar eventos
+
+```bat
+python -m agent run
+```
+
+Pluge e desplugue um pendrive. Você deve ver no console:
+```
+[INFO] CONNECTED — <dispositivo>
+[WARNING] Falha ao enviar evento USB (buffered): ...
+```
+
+Interrompa com `Ctrl+C`.
+
+### 9c. Verificar eventos no buffer
 
 ```bat
 python -c "
 from agent.local_db import LocalDB
 db = LocalDB()
-print('Eventos pendentes no buffer:', db.pending_count())
+print('Eventos pendentes:', db.pending_count())
 "
 ```
+
+**Esperado:** número > 0
+
+### 9d. Reativar a rede e fazer flush manual
+
+Reative a rede, depois rode novamente:
+
+```bat
+python -m agent run
+```
+
+Aguarde ~30 segundos (intervalo do flush loop). O agente deve reenviar automaticamente:
+```
+[INFO] X eventos pendentes enviados com sucesso
+```
+
+Verifique que o buffer esvaziou:
+```bat
+python -c "
+from agent.local_db import LocalDB
+db = LocalDB()
+print('Eventos pendentes após flush:', db.pending_count())
+"
+```
+
+**Esperado:** `0`
 
 ---
 
 ## O que reportar ao final
 
-Para cada etapa, informe:
+Para cada etapa (6 a 9), informe:
 1. ✅ Passou / ❌ Falhou
-2. Saída exata do console (especialmente em falhas)
-3. Versões: Python, wmi, pywin32
-4. Modelo/versão do Windows (`winver`)
-5. JSON completo do specs.py (Etapa 4d)
-6. Eventos USB capturados (Etapa 5) — nome, VID, PID de cada dispositivo testado
+2. Saída exata do console em cada sub-etapa
+3. `machine_id` recebido na Etapa 7
+4. Confirmação visual no portal (eventos chegaram no feed?)
+5. Contagem do buffer antes e depois do flush (Etapa 9)
+6. Qualquer erro inesperado com traceback completo
