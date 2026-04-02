@@ -39,6 +39,38 @@ class UsbMonitor:
         self._thread.start()
         logger.info('UsbMonitor iniciado')
 
+        # Scan imediato dos dispositivos já conectados
+        threading.Thread(
+            target=self._scan_existing,
+            name='UsbInitialScan',
+            daemon=True,
+        ).start()
+
+    def _scan_existing(self) -> None:
+        """Lê todos os dispositivos USB já conectados no momento do start e dispara eventos connected."""
+        try:
+            import pythoncom  # type: ignore[import]
+            import wmi        # type: ignore[import]
+        except ImportError:
+            return
+
+        pythoncom.CoInitialize()
+        try:
+            c = wmi.WMI()
+            devices = c.Win32_PnPEntity()
+            count = 0
+            for dev in devices:
+                pnp_id = getattr(dev, 'PNPDeviceID', '') or ''
+                if not pnp_id.upper().startswith('USB\\'):
+                    continue
+                self._handle(dev, 'connected')
+                count += 1
+            logger.info('Scan inicial: %d dispositivo(s) USB já conectado(s) reportado(s)', count)
+        except Exception as exc:
+            logger.warning('Falha no scan inicial de USB: %s', exc)
+        finally:
+            pythoncom.CoUninitialize()
+
     def stop(self) -> None:
         self._stop_event.set()
         if self._thread:
