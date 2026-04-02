@@ -56,7 +56,7 @@ jobs:
             --hidden-import PIL.Image `
             --hidden-import PIL.ImageDraw `
             --collect-all pystray `
-            agent/__main__.py
+            main.py
 
       # --------------------------------------------------------
       # 5. Inno Setup → IN9USBAgent_Setup.exe

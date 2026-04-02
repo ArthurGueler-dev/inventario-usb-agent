@@ -21,7 +21,7 @@ pyinstaller ^
     --hidden-import PIL.Image ^
     --hidden-import PIL.ImageDraw ^
     --collect-all pystray ^
-    agent/__main__.py
+    main.py
 
 if %errorlevel% neq 0 (
     echo ERRO: Build falhou.
