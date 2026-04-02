@@ -1,0 +1,100 @@
+name: Build Installer
+
+on:
+  push:
+    tags:
+      - 'v*'          # dispara em: git tag v1.0.0 && git push --tags
+  workflow_dispatch:  # permite rodar manualmente pelo GitHub UI
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      # --------------------------------------------------------
+      # 1. Checkout
+      # --------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # 2. Python
+      # --------------------------------------------------------
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # --------------------------------------------------------
+      # 3. Dependências Python
+      # --------------------------------------------------------
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller wmi pywin32 psutil requests pystray Pillow
+
+      # --------------------------------------------------------
+      # 4. PyInstaller → usb_agent.exe
+      # --------------------------------------------------------
+      - name: Build usb_agent.exe (PyInstaller)
+        run: |
+          pyinstaller `
+            --onefile `
+            --name usb_agent `
+            --noconsole `
+            --hidden-import win32timezone `
+            --hidden-import win32service `
+            --hidden-import win32serviceutil `
+            --hidden-import win32event `
+            --hidden-import servicemanager `
+            --hidden-import wmi `
+            --hidden-import pywintypes `
+            --hidden-import "pystray._win32" `
+            --hidden-import PIL.Image `
+            --hidden-import PIL.ImageDraw `
+            --collect-all pystray `
+            agent/__main__.py
+
+      # --------------------------------------------------------
+      # 5. Inno Setup → IN9USBAgent_Setup.exe
+      # --------------------------------------------------------
+      - name: Instalar Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build instalador (Inno Setup)
+        run: iscc installer\setup.iss
+
+      # --------------------------------------------------------
+      # 6. Upload dos artefatos (disponíveis em Actions > job)
+      # --------------------------------------------------------
+      - name: Upload artefatos
+        uses: actions/upload-artifact@v4
+        with:
+          name: IN9USBAgent-${{ github.ref_name }}
+          path: |
+            dist/usb_agent.exe
+            dist/IN9USBAgent_Setup.exe
+          retention-days: 30
+
+      # --------------------------------------------------------
+      # 7. Criar GitHub Release (somente em push de tag)
+      # --------------------------------------------------------
+      - name: Criar Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: IN9USBAgent ${{ github.ref_name }}
+          body: |
+            ## Instalação
+
+            Baixe `IN9USBAgent_Setup.exe` e execute como **Administrador** na máquina do colaborador.
+
+            O instalador não requer Python instalado — todas as dependências estão embutidas.
+
+            ### Requisitos
+            - Windows 10 ou 11 (64-bit)
+            - Conexão com `https://inventario.in9automacao.com.br`
+          files: |
+            dist/IN9USBAgent_Setup.exe
+          draft: false
+          prerelease: false
