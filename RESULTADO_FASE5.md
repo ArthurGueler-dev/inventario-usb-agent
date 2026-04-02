@@ -207,3 +207,85 @@ The IN9USBAgent service has started.
 
 **Status final:** Serviço instalado, iniciado e monitorando eventos USB em background ✅
 
+---
+
+## Observações sobre usuário comum (não-administrador)
+
+### O que exige administrador
+
+| Operação | Requer admin? |
+|---|---|
+| `python -m agent install` | Sim |
+| `sc start / stop / delete` | Sim |
+| Escrever em `HKLM\...\Services\` | Sim |
+| Criar junction `C:\in9agent` | Sim |
+| **Serviço rodando** (após instalação) | **Não** — roda como LocalSystem |
+
+### O que funciona sem administrador
+
+- Modo standalone: `python -m agent run` — usuário comum pode executar normalmente
+- WMI `Win32_PnPEntity`: usuários comuns têm permissão de leitura e watch
+- SQLite local e requisições HTTP: sem restrição
+- O serviço, uma vez instalado pelo admin, **roda em background independente do usuário logado** — inclusive sem ninguém logado
+
+### Modelo de deploy previsto para produção
+
+```
+Admin/TI executa uma única vez por máquina:
+    setup_service.bat  (como Administrador)
+      → instala o serviço
+      → configura PYTHONPATH no registro
+      → inicia o serviço
+
+Usuário comum não precisa interagir com o agente:
+    serviço inicia automaticamente com o Windows
+    monitora USB em background como LocalSystem
+    reporta eventos ao servidor independente do usuário
+```
+
+---
+
+## Proposta — Deploy robusto em produção (próxima fase)
+
+O setup atual tem uma fragilidade: o venv, o código e a `python313.dll` estão dentro do perfil do usuário (`C:\Users\tutup\OneDrive\...`). Isso causa problemas em produção:
+
+- Se o usuário que instalou não for o operador da máquina
+- Se o OneDrive mover ou sincronizar os arquivos
+- Se o perfil do usuário for deletado ou recriado
+
+### Estrutura proposta
+
+```
+C:\Program Files\IN9Automacao\USBAgent\
+├── agent\                  ← código-fonte do agente
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── service.py
+│   └── ...
+├── venv\                   ← ambiente Python isolado
+│   ├── python313.dll       ← DLL copiada aqui (obrigatório para LocalSystem)
+│   ├── pythoncom313.dll
+│   ├── pywintypes313.dll
+│   ├── pythonservice.exe
+│   └── Lib\site-packages\
+│       ├── wmi\
+│       ├── requests\
+│       ├── psutil\
+│       └── ...
+├── data\                   ← banco SQLite (agent.db, token, config)
+└── setup_service.bat       ← instalador (executar como admin)
+```
+
+### Por que `C:\Program Files\`
+
+- Caminho sem caracteres Unicode — evita os problemas de encoding enfrentados nesta fase
+- Diretório de sistema — acessível pelo LocalSystem e por qualquer usuário da máquina
+- Convencional para serviços Windows — sem dependência de perfil de usuário
+- Permite deploy via MSI, GPO ou ferramentas de RMM (ex.: N-central, ConnectWise)
+
+### Mudanças necessárias no código
+
+1. **`local_db.py`** — trocar o diretório padrão do SQLite de `Path.home()` para `C:\Program Files\IN9Automacao\USBAgent\data\`
+2. **`setup_service.bat`** — instalar direto em `C:\Program Files\...` sem precisar de junction
+3. **Empacotamento** — gerar instalador `.msi` ou `.exe` via `cx_Freeze` ou NSIS que copia tudo para `Program Files` e registra o serviço automaticamente
+
