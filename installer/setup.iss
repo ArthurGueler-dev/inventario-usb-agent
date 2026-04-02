@@ -158,10 +158,18 @@ begin
   end;
 end;
 
+[Registry]
+; Inicia o ícone da bandeja automaticamente ao login do usuário
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
+  ValueType: string; ValueName: "IN9USBAgentTray"; \
+  ValueData: """{app}\{#AppExeName}"" tray"; \
+  Flags: uninsdeletevalue
+
 [Run]
-; Mensagem final — não abre nada para o colaborador
-Filename: "{app}\{#AppExeName}"; Parameters: ""; \
-  Description: ""; Flags: nowait postinstall skipifsilent runhidden;
+; Iniciar o ícone da bandeja imediatamente após instalar (sem bloquear)
+Filename: "{app}\{#AppExeName}"; Parameters: "tray"; \
+  Description: "Iniciar ícone na bandeja"; \
+  Flags: nowait postinstall skipifsilent runhidden
 
 [Messages]
 FinishedLabel=O {#AppName} foi instalado com sucesso e está em execução.%n%nO agente aparecerá como pendente no portal do Inventário TI e precisará ser aprovado por um administrador.

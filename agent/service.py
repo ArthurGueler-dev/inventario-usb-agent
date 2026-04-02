@@ -27,7 +27,6 @@ from .hasher import compute_hash_id
 from .classifier import classify
 from .specs import capture_machine_specs
 from .updater import Updater
-from .tray import TrayIcon, TrayStatus
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +41,8 @@ class AgentCore:
     quanto em modo standalone (para desenvolvimento/teste).
     """
 
-    def __init__(self, db: LocalDB, tray: TrayIcon | None = None):
+    def __init__(self, db: LocalDB):
         self._db = db
-        self._tray = tray
         self._reporter: Reporter | None = None
         self._monitor: UsbMonitor | None = None
         self._updater: Updater | None = None
@@ -83,9 +81,6 @@ class AgentCore:
         threading.Thread(target=self._heartbeat_loop, daemon=True, name='HeartbeatThread').start()
         threading.Thread(target=self._flush_loop, daemon=True, name='FlushThread').start()
 
-        if self._tray:
-            self._tray.set_status(TrayStatus.ONLINE)
-
         logger.info('Agente em execução. Monitorando eventos USB...')
 
     def stop(self) -> None:
@@ -95,9 +90,6 @@ class AgentCore:
             self._monitor.stop()
         if self._updater:
             self._updater.stop()
-        if self._tray:
-            self._tray.set_status(TrayStatus.ERROR)
-            self._tray.stop()
         logger.info('Agente parado.')
 
     def wait(self) -> None:
@@ -161,12 +153,8 @@ class AgentCore:
             if not self._reporter.is_online():
                 logger.warning('%d evento(s) pendente(s) no buffer — servidor inacessível, tentando novamente em %ds',
                                pending, FLUSH_INTERVAL)
-                if self._tray:
-                    self._tray.set_status(TrayStatus.OFFLINE)
                 continue
             self._flush_pending()
-            if self._tray:
-                self._tray.set_status(TrayStatus.ONLINE)
 
     def _flush_pending(self) -> None:
         assert self._reporter is not None
@@ -228,8 +216,6 @@ class AgentCore:
                 logger.warning('Falha ao enviar evento USB: %s — enfileirando no buffer', exc)
         else:
             logger.warning('Servidor offline — enfileirando evento no buffer local')
-            if self._tray:
-                self._tray.set_status(TrayStatus.OFFLINE)
 
         self._db.enqueue_event(payload)
         logger.info('Buffer local: %d evento(s) pendente(s)', self._db.pending_count())

@@ -2,13 +2,15 @@
 """
 Ícone na bandeja do sistema (system tray).
 
-Estados:
-  verde   — conectado, reportando normalmente
-  amarelo — offline, eventos sendo acumulados localmente
-  vermelho — erro de configuração ou serviço parado
+Roda como processo separado do usuário (não como serviço).
+Iniciado pelo instalador via chave Run no registro do Windows.
 
-Depende de pystray + Pillow (Windows only em produção,
-mas funciona em qualquer OS que suporte tray icons).
+Estados:
+  verde   — serviço ativo, reportando normalmente (0 eventos pendentes)
+  amarelo — offline, eventos sendo acumulados no buffer
+  vermelho — serviço não está rodando
+
+Depende de pystray + Pillow.
 """
 
 import logging
@@ -17,7 +19,8 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
-ICON_SIZE = 64  # pixels
+ICON_SIZE  = 64   # pixels
+POLL_INTERVAL = 15  # segundos entre verificações de status
 
 
 class TrayStatus(Enum):
@@ -26,62 +29,67 @@ class TrayStatus(Enum):
     ERROR   = 'error'    # vermelho
 
 
-# Cores para cada estado
 _STATUS_COLORS: dict[TrayStatus, tuple[int, int, int]] = {
-    TrayStatus.ONLINE:  (34,  197, 94),   # green-500
-    TrayStatus.OFFLINE: (234, 179, 8),    # yellow-500
-    TrayStatus.ERROR:   (239, 68,  68),   # red-500
+    TrayStatus.ONLINE:  (34,  197, 94),
+    TrayStatus.OFFLINE: (234, 179, 8),
+    TrayStatus.ERROR:   (239, 68,  68),
 }
 
 _STATUS_LABELS: dict[TrayStatus, str] = {
-    TrayStatus.ONLINE:  'IN9 USB Agent — Conectado',
+    TrayStatus.ONLINE:  'IN9 USB Agent — Ativo',
     TrayStatus.OFFLINE: 'IN9 USB Agent — Offline (buffer ativo)',
-    TrayStatus.ERROR:   'IN9 USB Agent — Erro',
+    TrayStatus.ERROR:   'IN9 USB Agent — Serviço parado',
 }
 
 
 def _make_icon_image(color: tuple[int, int, int]):
-    """Gera um ícone circular colorido usando Pillow."""
     from PIL import Image, ImageDraw  # type: ignore[import]
-
-    img = Image.new('RGBA', (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
+    img  = Image.new('RGBA', (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    margin = 4
-    draw.ellipse(
-        [margin, margin, ICON_SIZE - margin, ICON_SIZE - margin],
-        fill=(*color, 255),
-    )
+    m    = 4
+    draw.ellipse([m, m, ICON_SIZE - m, ICON_SIZE - m], fill=(*color, 255))
     return img
 
 
-class TrayIcon:
-    """
-    Gerencia o ícone na bandeja do sistema.
-    O pystray exige que icon.run() seja chamado na thread principal.
-    Portanto esta classe oferece run() (bloqueante) e run_detached() (thread).
-    """
+def _service_is_running() -> bool:
+    """Verifica se o serviço Windows IN9USBAgent está em execução."""
+    try:
+        import win32service  # type: ignore[import]
+        scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        svc = win32service.OpenService(scm, 'IN9USBAgent', win32service.SERVICE_QUERY_STATUS)
+        status = win32service.QueryServiceStatus(svc)
+        win32service.CloseServiceHandle(svc)
+        win32service.CloseServiceHandle(scm)
+        return status[1] == win32service.SERVICE_RUNNING
+    except Exception:
+        return False
 
+
+def _pending_events() -> int:
+    """Lê a contagem de eventos pendentes no buffer local."""
+    try:
+        from .local_db import LocalDB
+        return LocalDB().pending_count()
+    except Exception:
+        return 0
+
+
+class TrayIcon:
     def __init__(self):
         self._icon = None
-        self._status = TrayStatus.ONLINE
         self._available = False
+        self._stop_event = threading.Event()
 
         try:
-            import pystray  # type: ignore[import]
-            from PIL import Image  # type: ignore[import]  # noqa: F401
+            import pystray          # type: ignore[import]
+            from PIL import Image   # type: ignore[import]  # noqa: F401
             self._available = True
         except ImportError:
             logger.debug('pystray/Pillow não disponíveis — tray desabilitado')
 
-    # -------------------------------------------------------------------------
-    # API pública
-    # -------------------------------------------------------------------------
-
     def set_status(self, status: TrayStatus, tooltip: str | None = None) -> None:
-        """Atualiza cor e tooltip do ícone."""
         if not self._available or self._icon is None:
             return
-        self._status = status
         try:
             self._icon.icon  = _make_icon_image(_STATUS_COLORS[status])
             self._icon.title = tooltip or _STATUS_LABELS[status]
@@ -89,36 +97,36 @@ class TrayIcon:
             logger.debug('Falha ao atualizar ícone: %s', exc)
 
     def run(self) -> None:
-        """Bloqueia a thread atual rodando o loop do tray. Chamar na thread principal."""
+        """Bloqueia a thread principal rodando o loop do tray."""
         if not self._available:
             return
         self._icon = self._build_icon()
+        # Iniciar o poller de status em background
+        threading.Thread(target=self._poll_status, daemon=True, name='TrayPoller').start()
         self._icon.run()
 
-    def run_detached(self) -> None:
-        """Inicia o tray em thread separada (modo standalone/dev)."""
-        if not self._available:
-            return
-        t = threading.Thread(target=self.run, name='TrayThread', daemon=True)
-        t.start()
-
     def stop(self) -> None:
+        self._stop_event.set()
         if self._icon:
             try:
                 self._icon.stop()
             except Exception:
                 pass
 
-    # -------------------------------------------------------------------------
-    # Construção do ícone
-    # -------------------------------------------------------------------------
-
     def _build_icon(self):
         import pystray  # type: ignore[import]
-
-        icon = pystray.Icon(
+        return pystray.Icon(
             name='IN9USBAgent',
-            icon=_make_icon_image(_STATUS_COLORS[self._status]),
-            title=_STATUS_LABELS[self._status],
+            icon=_make_icon_image(_STATUS_COLORS[TrayStatus.ONLINE]),
+            title=_STATUS_LABELS[TrayStatus.ONLINE],
         )
-        return icon
+
+    def _poll_status(self) -> None:
+        """Atualiza a cor do ícone periodicamente com base no estado real do serviço."""
+        while not self._stop_event.wait(POLL_INTERVAL):
+            if not _service_is_running():
+                self.set_status(TrayStatus.ERROR)
+            elif _pending_events() > 0:
+                self.set_status(TrayStatus.OFFLINE)
+            else:
+                self.set_status(TrayStatus.ONLINE)
