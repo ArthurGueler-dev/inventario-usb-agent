@@ -16,16 +16,24 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Localização padrão: %PROGRAMDATA%\IN9USBAgent\agent.db (Windows)
-# Em Linux/dev: diretório atual
-DEFAULT_DB_PATH = Path(__file__).parent.parent / 'agent.db'
+# Localização padrão:
+#   Windows: C:\Program Files\IN9Automacao\USBAgent\data\agent.db
+#   Linux/dev: diretório raiz do projeto
+def _default_db_path() -> Path:
+    import sys
+    if sys.platform == 'win32':
+        base = Path(r'C:\Program Files\IN9Automacao\USBAgent\data')
+    else:
+        base = Path(__file__).parent.parent
+    base.mkdir(parents=True, exist_ok=True)
+    return base / 'agent.db'
 
 BATCH_SIZE = 50  # flush máximo de 50 eventos por vez
 
 
 class LocalDB:
     def __init__(self, db_path: Path | None = None):
-        self._path = db_path or DEFAULT_DB_PATH
+        self._path = db_path or _default_db_path()
         self._lock = threading.Lock()
         self._init_db()
 

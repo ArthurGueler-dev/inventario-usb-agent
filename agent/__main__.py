@@ -57,18 +57,35 @@ def _get_db() -> 'LocalDB':
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    """Roda o agente em modo standalone (foreground)."""
+    """
+    Roda o agente em modo standalone (foreground).
+    Se pystray estiver disponível, exibe ícone na bandeja e bloqueia na thread principal.
+    """
     from .local_db import LocalDB
     from .service import AgentCore
+    from .tray import TrayIcon
 
     db = LocalDB()
-    core = AgentCore(db)
+    tray = TrayIcon(on_quit=lambda: None)
+    core = AgentCore(db, tray=tray)
+
     core.start()
-    try:
-        core.wait()
-    except KeyboardInterrupt:
-        logger.info('Interrompido pelo usuário.')
-        core.stop()
+
+    if tray._available:
+        # pystray precisa rodar na thread principal — core já está em threads daemon
+        try:
+            tray.run()  # bloqueia até "Sair" no menu ou tray.stop()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            core.stop()
+    else:
+        # Sem tray: bloqueia aguardando Ctrl+C
+        try:
+            core.wait()
+        except KeyboardInterrupt:
+            logger.info('Interrompido pelo usuário.')
+            core.stop()
 
 
 def cmd_config(args: argparse.Namespace) -> None:
