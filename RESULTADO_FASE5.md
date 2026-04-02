@@ -1,4 +1,4 @@
-# Resultado — Etapas 1 a 8: Testes locais e integração do agente USB
+# Resultado — Etapas 1 a 9: Testes completos do agente USB
 
 **Data:** 2026-04-02
 **Executado por:** Claude Sonnet 4.6 via Claude Code
@@ -12,7 +12,6 @@
 | OS | Windows 11 Pro for Workstations 10.0.26200 |
 | Hostname | arthur-desktop |
 | Python | 3.13.5 |
-| pip | 25.1.1 |
 | wmi | 1.5.1 |
 | pywin32 | 311 |
 | psutil | 7.2.2 |
@@ -57,36 +56,29 @@ Hash (unstable): d7c494640a362e5a ... stable= False
 
 ### 4b. classifier.py ✅
 ```
-mouse
-pen_drive
-unknown
-peripheral
+mouse / pen_drive / unknown / peripheral
 ```
 
 ### 4c. local_db.py ✅
 ```
 Pending: 1 | Batch size: 1 | After mark_sent: 0
 ```
-> Nota: `os.remove` falha com PermissionError no Windows por lock do SQLite — lógica de negócio correta.
+> `os.remove` do script de teste falha com PermissionError no Windows por lock do SQLite — lógica correta, limitação do script de teste.
 
 ### 4d. specs.py ✅
 ```json
 {
   "hostname": "arthur-desktop",
   "cpu": "AMD Ryzen 5 5600G with Radeon Graphics",
-  "cpu_cores": 6,
-  "cpu_threads": 12,
-  "ram_gb": 7.8,
+  "cpu_cores": 6, "cpu_threads": 12, "ram_gb": 7.8,
   "disks": [
-    { "label": "C:\\", "total_gb": 1862.3, "type": "SSD" },
-    { "label": "D:\\", "total_gb": 930.9,  "type": "SSD" }
+    {"label": "C:\\", "total_gb": 1862.3, "type": "SSD"},
+    {"label": "D:\\", "total_gb": 930.9,  "type": "SSD"}
   ],
   "gpu": "Parsec Virtual Display Adapter",
   "os": "Microsoft Windows 11 Pro for Workstations 64 bits",
-  "os_build": "26200",
-  "bios_serial": "System Serial Number",
-  "bios_version": "3611",
-  "mac_address": "E8:9C:25:3B:2B:A7"
+  "os_build": "26200", "bios_serial": "System Serial Number",
+  "bios_version": "3611", "mac_address": "E8:9C:25:3B:2B:A7"
 }
 ```
 
@@ -94,11 +86,11 @@ Pending: 1 | Batch size: 1 | After mark_sent: 0
 
 ## Etapa 5 — WMI Watcher ✅
 
-**Bug corrigido (commit `0fe997c`):** `watch_for` aceita `'creation'`/`'deletion'`, não `'__InstanceCreationEvent'`. Objeto retornado é o evento diretamente, não tem `.NewValue`/`.PreviousValue`.
+**Bug corrigido:** `watch_for` aceita `'creation'`/`'deletion'`, não os nomes completos dos eventos WMI. Objeto retornado não tem `.NewValue`/`.PreviousValue`.
 
 ```
-EVENTO: connected | Dispositivo de Entrada USB | VID:1EA7 PID:9018 | serial:None  (×3)
-EVENTO: connected | USB Composite Device       | VID:1EA7 PID:9018 | serial:None  (×1)
+EVENTO: connected | Dispositivo de Entrada USB | VID:1EA7 PID:9018 (×3)
+EVENTO: connected | USB Composite Device       | VID:1EA7 PID:9018 (×1)
 Total de eventos capturados: 4
 ```
 
@@ -106,81 +98,66 @@ Total de eventos capturados: 4
 
 ## Etapa 6 — Configurar conexão com o servidor ✅
 
-- Token gerado: `...e1982f37` (64 chars hex)
-- URL salva: `https://inventario.in9automacao.com.br`
-- Conectividade confirmada: servidor retornou JSON (401 = token ainda não registrado, esperado)
+- Token gerado: `...e1982f37` (64 chars)
+- URL: `https://inventario.in9automacao.com.br`
+- Servidor acessível — retornou JSON
 
-**Bug corrigido (commit `be1dc88`):** o `POST /api/agent/register/new` exige o token no body (além do payload de hostname/mac/bios). Corrigido em `reporter.py`.
+**Bug corrigido:** `POST /api/agent/register/new` exige token no body.
 
 ---
 
 ## Etapa 7 — Registrar a máquina no servidor ✅
 
 ```json
-{
-  "success": true,
-  "data": {
-    "machine_id": "0337706b-2e43-11f1-919e-c4e8d4b259f8",
-    "status": "pending",
-    "message": "Agente registrado. Aguardando aprovação do administrador."
-  }
-}
+{"success": true, "data": {
+  "machine_id": "0337706b-2e43-11f1-919e-c4e8d4b259f8",
+  "status": "pending"
+}}
 ```
-
-`machine_id`: `0337706b-2e43-11f1-919e-c4e8d4b259f8`
 
 ---
 
 ## Etapa 8 — Agente standalone (aprovado) ✅
 
-**Bugs corrigidos (commit `be1dc88`):**
-1. `usb_monitor.py`: WMI em thread separada exige `pythoncom.CoInitialize()` antes de `wmi.WMI()` — sem isso lançava `x_wmi_uninitialised_thread`
-2. `service.py`: resposta do `/api/agent/register` retorna `{'success': True, 'data': {...}}` — código acessava `resp.get('status')` ao invés de `resp['data']['status']`
+**Bugs corrigidos:**
+1. `usb_monitor.py`: faltava `CoInitialize/CoUninitialize` para WMI em thread
+2. `service.py`: resposta do servidor aninhada em `data` não era extraída
+3. `reporter.py`: token não incluído no body do `register/new`
 
-**Console do agente:**
+**Console:**
 ```
 [INFO] IN9USBAgent v1.0.0 iniciando...
 [INFO] Registro OK — status: active
 [INFO] WMI watchers registrados — aguardando eventos USB...
-[INFO] DISCONNECTED — Dispositivo de Entrada USB [VID:1EA7 PID:9018]  (×3)
-[INFO] DISCONNECTED — USB Composite Device [VID:1EA7 PID:9018]        (×1)
-[INFO] CONNECTED — Dispositivo de Entrada USB [VID:1EA7 PID:9018]     (×3)
-[INFO] CONNECTED — USB Composite Device [VID:1EA7 PID:9018]           (×1)
+[INFO] DISCONNECTED — Dispositivo de Entrada USB [VID:1EA7 PID:9018] (×4)
+[INFO] CONNECTED  — Dispositivo de Entrada USB [VID:1EA7 PID:9018]   (×4)
 ```
 
-**Buffer após execução:** 0 eventos pendentes → todos enviados com sucesso.
-
-**Confirmação no portal** (`/usb-monitoramento` → Feed de Eventos):
-- ✅ Eventos chegaram no servidor
-- Dispositivo: `USB Composite Device` / `Dispositivo de Entrada USB`
-- VID/PID: `1EA7:9018`
-- Máquina: `arthur-desktop`
-- Hash: `985e67dbd3fc64e0...` (por modelo — serial instável)
-- Eventos connected ↑ e disconnected ↓ visíveis no feed
+**Portal** (`/usb-monitoramento` → Feed de Eventos): eventos chegaram ✅
 
 ---
 
 ## Etapa 9 — Buffer offline ✅
 
-**Método:** URL do servidor alterada temporariamente para `http://127.0.0.1:19999` (endereço inválido) para simular ausência de conectividade sem precisar desativar a rede.
+**Método:** URL trocada para `http://127.0.0.1:19999` para simular offline.
 
-**9b — Agente com "offline":**
+**Com servidor inacessível:**
 ```
-[WARNING] Falha no registro: HTTPConnectionPool(host='127.0.0.1', port=19999): Failed to establish a new connection
-[INFO] WMI watchers registrados — aguardando eventos USB...
-[INFO] DISCONNECTED — Dispositivo de Entrada USB [VID:1EA7 PID:9018]  (×3)
-[INFO] CONNECTED  — Dispositivo de Entrada USB [VID:1EA7 PID:9018]    (×1)
-```
-
-**9c — Buffer antes do flush:** 3 eventos pendentes
-
-**9d — Após restaurar URL e rodar agente:**
-```
-[INFO] Registro OK — status: active
-Buffer após flush: 0 eventos pendentes
+[WARNING] Servidor offline — enfileirando evento no buffer local
+[INFO]    Buffer local: 1 evento(s) pendente(s)
+[WARNING] Servidor offline — enfileirando evento no buffer local
+[INFO]    Buffer local: 2 evento(s) pendente(s)
+...
+[WARNING] 3 evento(s) pendente(s) no buffer — servidor inacessível, tentando novamente em 30s
 ```
 
-Os 3 eventos foram reenviados automaticamente pelo `_flush_loop` (intervalo de 30s).
+**Após restaurar conexão:**
+```
+[INFO] Reenviando 3 evento(s) do buffer offline...
+[INFO] 3/3 evento(s) do buffer enviados com sucesso
+```
+
+Buffer antes: 3 | Buffer depois: 0 ✅
 
 ---
 
@@ -188,7 +165,45 @@ Os 3 eventos foram reenviados automaticamente pelo `_flush_loop` (intervalo de 3
 
 | Commit | Arquivo | Bug |
 |---|---|---|
-| `0fe997c` | `usb_monitor.py` | `watch_for` com nome errado do evento WMI; `.NewValue`/`.PreviousValue` inexistentes |
-| `be1dc88` | `usb_monitor.py` | Faltava `CoInitialize/CoUninitialize` para uso de WMI em thread |
+| `0fe997c` | `usb_monitor.py` | `watch_for` com nome errado; `.NewValue`/`.PreviousValue` inexistentes |
+| `be1dc88` | `usb_monitor.py` | Faltava `CoInitialize/CoUninitialize` para WMI em thread |
 | `be1dc88` | `reporter.py` | Token não enviado no body do `register/new` |
-| `be1dc88` | `service.py` | Resposta do servidor aninhada em `data` não era extraída corretamente |
+| `be1dc88` | `service.py` | Resposta do servidor aninhada em `data` não extraída |
+| `1a8bc3e` | `reporter.py` | `is_online()` usava porta fixa (80/443) em vez da porta real da URL |
+| `1a8bc3e` | `service.py` | `_handle_usb_event` enfileirava antes de enviar — bug marcava eventos antigos como enviados |
+| `1a8bc3e` | `service.py` | Logs de offline em `debug` (invisíveis) — elevados para `warning` |
+| `1a8bc3e` | `__main__.py` | Encoding quebrado no console Windows — `stdout.reconfigure(utf-8)` |
+| (etapa 10) | `.venv/` | `python313.dll` ausente no venv — pythonservice.exe não encontrava a DLL ao rodar como serviço |
+
+---
+
+## Etapa 10 — Windows Service ✅
+
+**Causa raiz do erro 1053:** `pythonservice.exe` roda como LocalSystem sem herdar o PATH do usuário.
+A `python313.dll` não estava no diretório do executável (`.venv\`), portanto o processo crashava antes de inicializar o Python.
+
+**Fix aplicado:**
+1. Copiado `python313.dll` para `.venv\` (junto com `pythoncom313.dll` e `pywintypes313.dll`)
+2. PYTHONPATH configurado no registro do serviço via `winreg` (usando junction `C:\in9agent` para evitar Unicode no path)
+3. ImagePath atualizado para usar o junction: `"C:\in9agent\.venv\pythonservice.exe"`
+
+**Comandos de instalação (como Administrador):**
+```
+python -m agent install
+reg add HKLM\SYSTEM\...\IN9USBAgent /v Environment /t REG_MULTI_SZ /d "PYTHONPATH=C:\in9agent;..."
+sc start IN9USBAgent
+```
+
+**Resultado:**
+```
+sc query IN9USBAgent
+  ESTADO : 4  RUNNING
+```
+
+**Event Log (Application):**
+```
+The IN9USBAgent service has started.
+```
+
+**Status final:** Serviço instalado, iniciado e monitorando eventos USB em background ✅
+

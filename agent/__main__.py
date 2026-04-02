@@ -26,6 +26,14 @@ from pathlib import Path
 
 # Logging básico para stdout (serviço redireciona para arquivo/Event Log)
 import sys as _sys
+import io as _io
+
+# Forçar UTF-8 no stdout para evitar caracteres quebrados no console Windows
+if hasattr(_sys.stdout, 'reconfigure'):
+    try:
+        _sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 class _FlushHandler(logging.StreamHandler):
     """StreamHandler que faz flush após cada registro — garante logs visíveis em tempo real."""
