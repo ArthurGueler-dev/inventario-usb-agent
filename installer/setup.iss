@@ -6,7 +6,7 @@
 ; Ou via build\build_installer.bat
 
 #define AppName      "IN9 USB Agent"
-#define AppVersion   "1.0.0"
+#define AppVersion   "1.0.1"
 #define AppPublisher "IN9 Automacao"
 #define AppExeName   "usb_agent.exe"
 #define ServiceName  "IN9USBAgent"
@@ -135,11 +135,11 @@ begin
 end;
 
 // ----------------------------------------------------------------------------
-// Desinstalação: parar e remover serviço
+// Desinstalação: parar e remover serviço, apagar dados do agente
 // ----------------------------------------------------------------------------
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  ExePath: String;
+  ExePath, DbFile: String;
   ResultCode: Integer;
 begin
   if CurUninstallStep = usUninstall then
@@ -155,6 +155,15 @@ begin
     if FileExists(ExePath) then
       Exec(ExePath, 'remove',
         ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+    // Apagar banco de dados do agente (token, machine_id, buffer)
+    // Garante que uma reinstalação gere novo token e novo registro no servidor
+    DbFile := ExpandConstant('{#DataDir}\agent.db');
+    if FileExists(DbFile) then
+    begin
+      DeleteFile(DbFile);
+      Log('agent.db removido: ' + DbFile);
+    end;
   end;
 end;
 
