@@ -1,11 +1,9 @@
 @echo off
-:: build.bat — Empacota o agente em usb_agent.exe via PyInstaller
-:: Executar a partir do diretório raiz do projeto com o venv ativado:
-::   .venv\Scripts\activate
-::   build\build.bat
+:: build.bat — Gera apenas o usb_agent.exe via PyInstaller (sem instalador)
+:: Para o instalador completo, use: build\build_installer.bat
 
 echo ============================================================
-echo  IN9USBAgent — Build PyInstaller
+echo  IN9USBAgent — Build PyInstaller (somente .exe)
 echo ============================================================
 
 pyinstaller ^
@@ -31,8 +29,5 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo Build concluido: dist\usb_agent.exe
-echo.
-echo Para instalar:
-echo   copy dist\usb_agent.exe "C:\Program Files\IN9Automacao\USBAgent\"
-echo   installer\setup_service.bat
+echo dist\usb_agent.exe gerado.
+echo Para o instalador completo: build\build_installer.bat

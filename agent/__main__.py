@@ -89,7 +89,8 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def cmd_config(args: argparse.Namespace) -> None:
-    """Salva server_url e token no SQLite local."""
+    """Salva server_url e token no SQLite local. Gera token automaticamente se não informado."""
+    import secrets
     db = _get_db()
     if args.url:
         db.server_url = args.url
@@ -97,6 +98,11 @@ def cmd_config(args: argparse.Namespace) -> None:
     if args.token:
         db.token = args.token
         print(f'token salvo: ...{args.token[-8:]}')
+    elif not db.token:
+        # Gera token na primeira configuração (instalador não precisa informar)
+        token = secrets.token_hex(32)
+        db.token = token
+        print(f'token gerado automaticamente: ...{token[-8:]}')
 
 
 def cmd_register_new(args: argparse.Namespace) -> None:
