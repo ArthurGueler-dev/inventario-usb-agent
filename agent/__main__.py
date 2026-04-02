@@ -66,7 +66,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     from .tray import TrayIcon
 
     db = LocalDB()
-    tray = TrayIcon(on_quit=lambda: None)
+    tray = TrayIcon()
     core = AgentCore(db, tray=tray)
 
     core.start()

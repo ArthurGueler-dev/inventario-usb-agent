@@ -14,7 +14,6 @@ mas funciona em qualquer OS que suporte tray icons).
 import logging
 import threading
 from enum import Enum
-from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +61,7 @@ class TrayIcon:
     Portanto esta classe oferece run() (bloqueante) e run_detached() (thread).
     """
 
-    def __init__(self, on_quit: Callable[[], None] | None = None):
-        self._on_quit = on_quit
+    def __init__(self):
         self._icon = None
         self._status = TrayStatus.ONLINE
         self._available = False
@@ -118,26 +116,9 @@ class TrayIcon:
     def _build_icon(self):
         import pystray  # type: ignore[import]
 
-        menu = pystray.Menu(
-            pystray.MenuItem('IN9 USB Agent', None, enabled=False),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem('Sair', self._quit),
-        )
-
         icon = pystray.Icon(
             name='IN9USBAgent',
             icon=_make_icon_image(_STATUS_COLORS[self._status]),
             title=_STATUS_LABELS[self._status],
-            menu=menu,
         )
         return icon
-
-    # -------------------------------------------------------------------------
-    # Ações do menu
-    # -------------------------------------------------------------------------
-
-    def _quit(self, icon, item) -> None:
-        logger.info('Saindo via menu do tray...')
-        icon.stop()
-        if self._on_quit:
-            self._on_quit()
