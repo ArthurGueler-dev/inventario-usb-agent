@@ -25,11 +25,20 @@ import sys
 from pathlib import Path
 
 # Logging básico para stdout (serviço redireciona para arquivo/Event Log)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+import sys as _sys
+
+class _FlushHandler(logging.StreamHandler):
+    """StreamHandler que faz flush após cada registro — garante logs visíveis em tempo real."""
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        self.flush()
+
+_handler = _FlushHandler(_sys.stdout)
+_handler.setFormatter(logging.Formatter(
+    fmt='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
-)
+))
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
 
 logger = logging.getLogger('agent')
 

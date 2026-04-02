@@ -140,7 +140,8 @@ class AgentCore:
             if pending == 0 or self._reporter is None:
                 continue
             if not self._reporter.is_online():
-                logger.debug('%d eventos pendentes — servidor offline', pending)
+                logger.warning('%d evento(s) pendente(s) no buffer — servidor inacessível, tentando novamente em %ds',
+                               pending, FLUSH_INTERVAL)
                 continue
             self._flush_pending()
 
@@ -150,6 +151,7 @@ class AgentCore:
         if not batch:
             return
 
+        logger.info('Reenviando %d evento(s) do buffer offline...', len(batch))
         sent_ids: list[int] = []
         for event_id, payload in batch:
             try:
@@ -161,7 +163,10 @@ class AgentCore:
 
         if sent_ids:
             self._db.mark_sent(sent_ids)
-            logger.info('%d eventos pendentes enviados com sucesso', len(sent_ids))
+            logger.info('%d/%d evento(s) do buffer enviados com sucesso', len(sent_ids), len(batch))
+        remaining = len(batch) - len(sent_ids)
+        if remaining > 0:
+            logger.warning('%d evento(s) permaneceram no buffer — nova tentativa em %ds', remaining, FLUSH_INTERVAL)
 
     # -------------------------------------------------------------------------
     # Processamento de evento USB
@@ -189,23 +194,20 @@ class AgentCore:
             'device_type':   device_type,
         }
 
-        # Salvar no buffer local antes de tentar enviar
-        self._db.enqueue_event(payload)
-
-        # Tentar envio imediato
+        # Tentar envio imediato — só enfileira se offline ou se o envio falhar
         if self._reporter and self._reporter.is_online():
             try:
                 resp = self._reporter.send_usb_event(payload)
-                # Marcar como enviado (último evento enfileirado)
-                batch = self._db.pop_pending_events()
-                if batch:
-                    last_id = batch[-1][0]
-                    # marca apenas eventos cujo payload coincide (simplificado: marca o lote atual)
-                    self._db.mark_sent([eid for eid, _ in batch])
                 if resp.get('alert'):
                     logger.warning('ALERTA gerado: %s', resp['alert'].get('message'))
+                return  # enviado com sucesso — não precisa enfileirar
             except Exception as exc:
-                logger.warning('Falha ao enviar evento USB (buffered): %s', exc)
+                logger.warning('Falha ao enviar evento USB: %s — enfileirando no buffer', exc)
+        else:
+            logger.warning('Servidor offline — enfileirando evento no buffer local')
+
+        self._db.enqueue_event(payload)
+        logger.info('Buffer local: %d evento(s) pendente(s)', self._db.pending_count())
 
 
 # =============================================================================

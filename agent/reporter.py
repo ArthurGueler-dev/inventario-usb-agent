@@ -102,8 +102,10 @@ class Reporter:
     def is_online(self) -> bool:
         """Verifica conectividade básica com o servidor (TCP, sem auth)."""
         try:
-            host = self._base.split('://')[-1].split('/')[0].split(':')[0]
-            port = 443 if self._base.startswith('https') else 80
+            from urllib.parse import urlparse
+            parsed = urlparse(self._base)
+            host = parsed.hostname or '127.0.0.1'
+            port = parsed.port or (443 if parsed.scheme == 'https' else 80)
             with socket.create_connection((host, port), timeout=3):
                 return True
         except OSError:
