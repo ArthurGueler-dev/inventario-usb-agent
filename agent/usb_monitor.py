@@ -141,18 +141,25 @@ class UsbMonitor:
         friendly_name: str | None = getattr(pnp_entity, 'Name', None)
         class_guid: str | None = getattr(pnp_entity, 'ClassGuid', None)
 
+        # CompatibleIDs — array de strings que identifica o tipo HID com precisão
+        # Ex: ["HID_DEVICE_SYSTEM_MOUSE", "HID_DEVICE_UP:0001_U:0002", ...]
+        raw_compat = getattr(pnp_entity, 'CompatibleID', None)
+        compatible_ids: list[str] = list(raw_compat) if raw_compat else []
+
         event_data = {
-            'event_type':    event_type,
-            'event_time':    datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'),
-            'vid':           vid,
-            'pid':           pid,
-            'serial':        serial,
-            'friendly_name': friendly_name,
-            'pnp_device_id': pnp_id,
-            'class_guid':    class_guid,  # usado pelo classifier, não enviado ao servidor
+            'event_type':     event_type,
+            'event_time':     datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+            'vid':            vid,
+            'pid':            pid,
+            'serial':         serial,
+            'friendly_name':  friendly_name,
+            'pnp_device_id':  pnp_id,
+            'class_guid':     class_guid,      # usado pelo classifier, não enviado ao servidor
+            'compatible_ids': compatible_ids,  # usado pelo classifier, não enviado ao servidor
         }
 
-        logger.info('%s — %s [VID:%s PID:%s]', event_type.upper(), friendly_name, vid, pid)
+        logger.info('%s — %s [VID:%s PID:%s compat:%d]',
+                    event_type.upper(), friendly_name, vid, pid, len(compatible_ids))
         self._on_event(event_data)
 
     @staticmethod

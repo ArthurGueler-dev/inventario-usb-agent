@@ -190,8 +190,9 @@ class AgentCore:
         friendly_name: str | None = raw_event.get('friendly_name')
         class_guid: str | None = raw_event.get('class_guid')
 
+        compatible_ids: list[str] = raw_event.get('compatible_ids') or []
         hash_id, serial_is_stable = compute_hash_id(vid, pid, serial)
-        device_type = classify(class_guid, friendly_name, vid)
+        device_type = classify(class_guid, friendly_name, vid, compatible_ids)
 
         payload: dict[str, Any] = {
             'event_type':    raw_event['event_type'],
