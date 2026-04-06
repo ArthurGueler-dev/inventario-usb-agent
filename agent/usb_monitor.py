@@ -47,7 +47,7 @@ class UsbMonitor:
         ).start()
 
     def _scan_existing(self) -> None:
-        """Lê todos os dispositivos USB já conectados no momento do start e dispara eventos connected."""
+        """Lê todos os dispositivos USB/HID já conectados no momento do start e dispara eventos connected."""
         try:
             import pythoncom  # type: ignore[import]
             import wmi        # type: ignore[import]
@@ -61,11 +61,12 @@ class UsbMonitor:
             count = 0
             for dev in devices:
                 pnp_id = getattr(dev, 'PNPDeviceID', '') or ''
-                if not pnp_id.upper().startswith('USB\\'):
+                prefix = pnp_id.upper().split('\\')[0] if '\\' in pnp_id else ''
+                if prefix not in ('USB', 'HID'):
                     continue
                 self._handle(dev, 'connected')
                 count += 1
-            logger.info('Scan inicial: %d dispositivo(s) USB já conectado(s) reportado(s)', count)
+            logger.info('Scan inicial: %d dispositivo(s) USB/HID já conectado(s) reportado(s)', count)
         except Exception as exc:
             logger.warning('Falha no scan inicial de USB: %s', exc)
         finally:
@@ -129,15 +130,33 @@ class UsbMonitor:
     # Processamento do evento
     # -------------------------------------------------------------------------
 
+    # GUID da classe USB genérica (hubs, composite devices) — filtramos pois seus
+    # filhos HID serão reportados em seguida com CompatibleIDs mais precisos.
+    _USB_CLASS_GUID = '{36FC9E60-C465-11CF-8056-444553540000}'
+
     def _handle(self, pnp_entity: object, event_type: str) -> None:
         if not pnp_entity:
             return
 
         pnp_id: str = getattr(pnp_entity, 'PNPDeviceID', '') or ''
-        if not pnp_id.upper().startswith('USB\\'):
-            return  # ignorar dispositivos não-USB
+        prefix = pnp_id.upper().split('\\')[0] if '\\' in pnp_id else ''
+
+        if prefix == 'USB':
+            # Pula dispositivos USB puro (hubs, composite) cujos filhos HID serão
+            # reportados a seguir com CompatibleIDs precisos para mouse/teclado.
+            cg = (getattr(pnp_entity, 'ClassGuid', '') or '').upper()
+            if cg == self._USB_CLASS_GUID.upper():
+                return
+        elif prefix == 'HID':
+            pass  # aceitos — carregam CompatibleIDs para mouse, teclado, headset
+        else:
+            return  # ignorar ACPI, PCI, etc.
 
         vid, pid, serial = self._parse_pnp_id(pnp_id)
+
+        # HID não-USB (PS/2 via HID layer, etc.) não têm VID/PID reais — ignorar
+        if prefix == 'HID' and vid == '0000' and pid == '0000':
+            return
         friendly_name: str | None = getattr(pnp_entity, 'Name', None)
         class_guid: str | None = getattr(pnp_entity, 'ClassGuid', None)
 
