@@ -46,6 +46,10 @@ class UsbMonitor:
             daemon=True,
         ).start()
 
+    # Propriedades que precisamos do Win32_PnPEntity — especificar explicitamente
+    # garante que CompatibleID (array) seja retornado pelo WMI Python.
+    _WMI_COLUMNS = ['PNPDeviceID', 'Name', 'ClassGuid', 'CompatibleID']
+
     def _scan_existing(self) -> None:
         """Lê todos os dispositivos USB/HID já conectados no momento do start e dispara eventos connected."""
         try:
@@ -57,7 +61,9 @@ class UsbMonitor:
         pythoncom.CoInitialize()
         try:
             c = wmi.WMI()
-            devices = c.Win32_PnPEntity()
+            # Especificar colunas é essencial: sem isso o WMI Python não popula
+            # propriedades do tipo array como CompatibleID.
+            devices = c.Win32_PnPEntity(self._WMI_COLUMNS)
             count = 0
             for dev in devices:
                 pnp_id = getattr(dev, 'PNPDeviceID', '') or ''
@@ -108,7 +114,10 @@ class UsbMonitor:
                 try:
                     event = watcher_connect(timeout_ms=500)
                     if event:
-                        self._handle(event, 'connected')
+                        # Objetos de evento WMI não populam arrays como CompatibleID —
+                        # re-consultar o dispositivo pelo PNPDeviceID para obter todos os campos.
+                        dev = self._refetch(c, event)
+                        self._handle(dev, 'connected')
                 except wmi.x_wmi_timed_out:
                     pass
                 except Exception as exc:
@@ -118,6 +127,8 @@ class UsbMonitor:
                 try:
                     event = watcher_disconnect(timeout_ms=500)
                     if event:
+                        # Para desconexão o dispositivo já não existe no WMI —
+                        # usamos o objeto de evento diretamente (CompatibleID pode ser vazio).
                         self._handle(event, 'disconnected')
                 except wmi.x_wmi_timed_out:
                     pass
@@ -133,6 +144,25 @@ class UsbMonitor:
     # GUID da classe USB genérica (hubs, composite devices) — filtramos pois seus
     # filhos HID serão reportados em seguida com CompatibleIDs mais precisos.
     _USB_CLASS_GUID = '{36FC9E60-C465-11CF-8056-444553540000}'
+
+    @staticmethod
+    def _refetch(c: object, event: object) -> object:
+        """
+        Re-consulta o dispositivo pelo PNPDeviceID para obter propriedades completas,
+        incluindo arrays como CompatibleID que objetos de evento WMI não populam.
+        Retorna o evento original se a re-consulta falhar.
+        """
+        pnp_id = getattr(event, 'PNPDeviceID', '') or ''
+        if not pnp_id:
+            return event
+        try:
+            rows = c.Win32_PnPEntity(  # type: ignore[attr-defined]
+                UsbMonitor._WMI_COLUMNS,
+                PNPDeviceID=pnp_id,
+            )
+            return rows[0] if rows else event
+        except Exception:
+            return event
 
     def _handle(self, pnp_entity: object, event_type: str) -> None:
         if not pnp_entity:

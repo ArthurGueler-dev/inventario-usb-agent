@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 300  # 5 minutos
 FLUSH_INTERVAL = 30       # tenta enviar buffer offline a cada 30s
-AGENT_VERSION = '1.0.4'
+AGENT_VERSION = '1.0.5'
 
 
 class AgentCore:

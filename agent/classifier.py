@@ -10,9 +10,9 @@ Ordem de prioridade:
   4. Fallback global: 'peripheral' ou 'unknown'
 """
 
-# ─── 1. Mapeamento CompatibleID → device_type ────────────────────────────────
+# ─── 1a. Mapeamento CompatibleID HID → device_type ──────────────────────────
 # Fonte: HID Usage Tables (https://usb.org/document-library/hid-usage-tables)
-# Win32_PnPEntity.CompatibleID[] contém strings como:
+# Win32_PnPEntity.CompatibleID[] de dispositivos HID\ contém strings como:
 #   "HID_DEVICE_SYSTEM_MOUSE", "HID_DEVICE_UP:0001_U:0002", etc.
 
 HID_COMPATIBLE_ID_MAP: dict[str, str] = {
@@ -42,6 +42,31 @@ HID_COMPATIBLE_ID_MAP: dict[str, str] = {
     # Usage Page 0xFF (Vendor Defined)
     # Não mapeamos — pode ser qualquer coisa
 }
+
+
+# ─── 1b. Mapeamento CompatibleID USB class → device_type ─────────────────────
+# Win32_PnPEntity.CompatibleID[] de dispositivos USB\ contém USB class codes:
+#   "USB\Class_03&SubClass_01&Prot_01", "USB\Class_08", etc.
+# Usamos startswith para cobrir variantes com subcódigos adicionais.
+# Ordem: mais específico primeiro.
+
+USB_CLASS_COMPAT_PREFIXES: list[tuple[str, str]] = [
+    # HID class (03) — SubClass 01 = Boot Interface
+    ('USB\\CLASS_03&SUBCLASS_01&PROT_01', 'teclado'),    # HID Boot Keyboard
+    ('USB\\CLASS_03&SUBCLASS_01&PROT_02', 'mouse'),      # HID Boot Mouse
+    # Mass Storage class (08)
+    ('USB\\CLASS_08', 'hd_externo'),
+    # Video class (0E) — webcams
+    ('USB\\CLASS_0E', 'webcam'),
+    # Audio class (01)
+    ('USB\\CLASS_01', 'fone'),
+    # Printer class (07)
+    ('USB\\CLASS_07', 'impressora'),
+    # CDC Communications (02) — adaptadores de rede USB
+    ('USB\\CLASS_02', 'adaptador_rede_usb'),
+    # Wireless Controller (E0) SubClass 01 Prot 01 = Bluetooth
+    ('USB\\CLASS_E0&SUBCLASS_01&PROT_01', 'adaptador_bluetooth'),
+]
 
 
 # ─── 2. Mapeamento PNP Class GUID → device_type ──────────────────────────────
@@ -151,14 +176,20 @@ NAME_HEURISTICS: list[tuple[str, str]] = [
 
 def _classify_from_compatible_ids(compatible_ids: list[str]) -> str | None:
     """
-    Tenta classificar um dispositivo HID usando seus CompatibleIDs.
+    Tenta classificar um dispositivo usando seus CompatibleIDs.
+    Suporta tanto HID CompatibleIDs quanto USB class codes.
     Retorna device_type ou None se não reconhecido.
     """
     for cid in compatible_ids:
         cid_upper = cid.upper().strip()
+        # 1. HID-specific strings (HID\ devices)
         result = HID_COMPATIBLE_ID_MAP.get(cid_upper)
         if result:
             return result
+        # 2. USB class codes (USB\ devices) — usar startswith para cobrir variantes
+        for prefix, dtype in USB_CLASS_COMPAT_PREFIXES:
+            if cid_upper.startswith(prefix):
+                return dtype
     return None
 
 

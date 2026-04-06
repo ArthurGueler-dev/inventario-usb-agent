@@ -6,7 +6,7 @@
 ; Ou via build\build_installer.bat
 
 #define AppName      "IN9 USB Agent"
-#define AppVersion   "1.0.4"
+#define AppVersion   "1.0.5"
 #define AppPublisher "IN9 Automacao"
 #define AppExeName   "usb_agent.exe"
 #define ServiceName  "IN9USBAgent"
