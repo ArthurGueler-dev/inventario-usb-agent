@@ -218,17 +218,20 @@ def classify(
             return result
 
     # 2. Class GUID (para dispositivos com driver de classe dedicado)
+    guid_type: str | None = None
     if pnp_class_guid:
-        result = PNP_CLASS_MAP.get(pnp_class_guid.upper())
-        if result:
-            return result
+        guid_type = PNP_CLASS_MAP.get(pnp_class_guid.upper())
 
-    # 3. Nome amigável (heurística por substring)
+    # 3. Nome amigável (heurística por substring) — tem prioridade sobre GUID
+    # quando o nome contém info mais específica (ex: "Wireless LAN" > "Net")
     if friendly_name:
         name_lower = friendly_name.lower()
         for keyword, device_type in NAME_HEURISTICS:
             if keyword in name_lower:
                 return device_type
+
+    if guid_type:
+        return guid_type
 
     # 4. Fallback
     return 'peripheral'
