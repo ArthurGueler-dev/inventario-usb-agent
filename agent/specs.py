@@ -147,6 +147,32 @@ def _collect_disks_psutil(psutil: Any) -> list[dict[str, Any]]:
     return discos
 
 
+def get_runtime_stats() -> dict[str, Any]:
+    """Retorna uso atual de CPU, RAM, disco livre e usuário logado.
+    Chamado a cada heartbeat. Falha silenciosa."""
+    stats: dict[str, Any] = {}
+    try:
+        import psutil  # type: ignore[import]
+        stats['cpu_usage_pct'] = psutil.cpu_percent(interval=1)
+        stats['ram_usage_pct'] = psutil.virtual_memory().percent
+        usage = psutil.disk_usage('C:\\')
+        stats['disk_free_gb'] = round(usage.free / (1024 ** 3), 1)
+    except Exception as exc:
+        logger.debug('psutil indisponível para runtime stats: %s', exc)
+
+    try:
+        import win32api  # type: ignore[import]
+        stats['current_user'] = win32api.GetUserName()
+    except Exception:
+        try:
+            import os
+            stats['current_user'] = os.environ.get('USERNAME') or os.environ.get('USER')
+        except Exception:
+            pass
+
+    return stats
+
+
 def _detect_disk_type_wmi(c: Any, drive_letter: str) -> str:
     """Heurística: detecta SSD vs HDD via Win32_DiskDrive."""
     try:

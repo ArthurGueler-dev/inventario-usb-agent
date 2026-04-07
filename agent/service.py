@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 300  # 5 minutos
 FLUSH_INTERVAL = 30       # tenta enviar buffer offline a cada 30s
-AGENT_VERSION = '1.0.5'
+AGENT_VERSION = '1.1.0'
 
 
 class AgentCore:
@@ -136,7 +136,10 @@ class AgentCore:
         while not self._stop_event.wait(HEARTBEAT_INTERVAL):
             if self._reporter:
                 try:
-                    self._reporter.heartbeat()
+                    resp = self._reporter.heartbeat(agent_version=AGENT_VERSION)
+                    data = resp.get('data', {})
+                    if data.get('needs_update') and data.get('download_url'):
+                        logger.info('Nova versão disponível: %s — iniciando auto-update', data.get('current_version'))
                     logger.debug('Heartbeat enviado')
                 except Exception as exc:
                     logger.warning('Heartbeat falhou: %s', exc)

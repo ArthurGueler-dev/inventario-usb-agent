@@ -54,8 +54,8 @@ USB_CLASS_COMPAT_PREFIXES: list[tuple[str, str]] = [
     # HID class (03) — SubClass 01 = Boot Interface
     ('USB\\CLASS_03&SUBCLASS_01&PROT_01', 'teclado'),    # HID Boot Keyboard
     ('USB\\CLASS_03&SUBCLASS_01&PROT_02', 'mouse'),      # HID Boot Mouse
-    # Mass Storage class (08)
-    ('USB\\CLASS_08', 'hd_externo'),
+    # Mass Storage class (08) — default pen_drive; nome amigável sobrescreve para hd_externo se necessário
+    ('USB\\CLASS_08', 'pen_drive'),
     # Video class (0E) — webcams
     ('USB\\CLASS_0E', 'webcam'),
     # Audio class (01)
@@ -123,14 +123,22 @@ NAME_HEURISTICS: list[tuple[str, str]] = [
     ('teclado',      'teclado'),
     ('keypad',       'teclado'),
 
-    # Armazenamento
+    # Armazenamento — pen drives primeiro (mais específico)
     ('pen drive',    'pen_drive'),
     ('pendrive',     'pen_drive'),
     ('flash drive',  'pen_drive'),
     ('flash disk',   'pen_drive'),
-    ('usb disk',     'hd_externo'),
-    ('usb drive',    'hd_externo'),
+    ('flash',        'pen_drive'),
+    ('mass storage', 'pen_drive'),   # "USB Mass Storage Device" = pen drive genérico
+    ('usb disk',     'pen_drive'),
+    ('usb drive',    'pen_drive'),
+    # HDs externos têm marcas/keywords distintas
     ('external',     'hd_externo'),
+    ('portable',     'hd_externo'),
+    ('seagate',      'hd_externo'),
+    ('western digital', 'hd_externo'),
+    (' wd ',         'hd_externo'),
+    ('toshiba',      'hd_externo'),
     ('disk',         'hd_externo'),
     ('storage',      'hd_externo'),
 

@@ -81,10 +81,14 @@ class Reporter:
             'specs': specs,
         })
 
-    def heartbeat(self) -> dict[str, Any]:
-        """POST /api/agent/heartbeat — atualiza last_seen."""
+    def heartbeat(self, agent_version: str | None = None) -> dict[str, Any]:
+        """POST /api/agent/heartbeat — atualiza last_seen e envia runtime stats."""
+        from .specs import get_runtime_stats
         logger.debug('Heartbeat (token: %s)', self._token_hint())
-        return self._post('/api/agent/heartbeat', {})
+        payload = get_runtime_stats()
+        if agent_version:
+            payload['agent_version'] = agent_version
+        return self._post('/api/agent/heartbeat', payload)
 
     def send_usb_event(self, event: dict[str, Any]) -> dict[str, Any]:
         """POST /api/agent/usb-event — reporta um evento USB."""
