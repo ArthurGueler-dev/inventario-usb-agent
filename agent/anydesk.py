@@ -50,21 +50,23 @@ def ensure_anydesk(reporter: 'Reporter') -> str | None:
 
     logger.info('Executando instalação silenciosa do AnyDesk...')
     try:
-        subprocess.run(
+        # Rodar via cmd /c para contornar restrições de SYSTEM account
+        result = subprocess.run(
             [
+                'cmd', '/c',
                 str(TMP_INSTALLER),
                 '--install', str(INSTALL_DIR),
                 '--start-with-win',
                 '--silent',
             ],
             timeout=INSTALL_TIMEOUT,
-            check=True,
+            capture_output=True,
         )
+        logger.info('AnyDesk installer saiu com código %d', result.returncode)
+        if result.stderr:
+            logger.debug('AnyDesk stderr: %s', result.stderr.decode(errors='replace'))
     except subprocess.TimeoutExpired:
         logger.warning('Timeout na instalação do AnyDesk (>%ds)', INSTALL_TIMEOUT)
-        return None
-    except subprocess.CalledProcessError as exc:
-        logger.warning('Instalação do AnyDesk retornou código %d', exc.returncode)
         return None
     except Exception as exc:
         logger.warning('Erro ao instalar AnyDesk: %s', exc)
@@ -74,6 +76,11 @@ def ensure_anydesk(reporter: 'Reporter') -> str | None:
             TMP_INSTALLER.unlink(missing_ok=True)
         except Exception:
             pass
+
+    # Verificar se instalou mesmo que o exit code seja não-zero
+    if not ANYDESK_EXE.exists():
+        logger.warning('AnyDesk não encontrado em %s após instalação', ANYDESK_EXE)
+        return None
 
     # Aguardar o serviço AnyDesk iniciar e criar system.conf com o ID
     logger.info('Aguardando AnyDesk gerar ID (até %ds)...', ID_WAIT_MAX)
