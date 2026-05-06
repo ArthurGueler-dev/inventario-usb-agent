@@ -173,6 +173,14 @@ class AgentCore:
                 except Exception as exc:
                     logger.warning('Heartbeat falhou: %s', exc)
 
+            # Retry AnyDesk se ainda não instalado
+            try:
+                from .anydesk import is_installed
+                if not is_installed() and self._reporter:
+                    self._try_install_anydesk()
+            except Exception:
+                pass
+
     # -------------------------------------------------------------------------
     # Flush offline loop
     # -------------------------------------------------------------------------
