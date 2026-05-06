@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 def get_anydesk_id() -> str | None:
     """Lê o ID do AnyDesk a partir dos arquivos de configuração locais."""
     candidates = [
+        Path(r'C:\ProgramData\AnyDesk\service.conf'),
         Path(r'C:\ProgramData\AnyDesk\system.conf'),
+        Path(os.environ.get('APPDATA', '')) / 'AnyDesk' / 'service.conf',
         Path(os.environ.get('APPDATA', '')) / 'AnyDesk' / 'system.conf',
     ]
     for conf_path in candidates:

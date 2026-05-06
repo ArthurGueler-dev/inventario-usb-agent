@@ -35,8 +35,9 @@ def ensure_anydesk(reporter: 'Reporter') -> str | None:
       3. Aguarda o ID ser gerado no system.conf
     Retorna o AnyDesk ID se disponível, None caso contrário (falha silenciosa).
     """
+    logger.info('Verificando se AnyDesk está instalado em: %s', ANYDESK_EXE)
     if is_installed():
-        logger.debug('AnyDesk já instalado — nada a fazer.')
+        logger.info('AnyDesk já instalado — lendo ID...')
         from .specs import get_anydesk_id
         return get_anydesk_id()
 
@@ -44,16 +45,15 @@ def ensure_anydesk(reporter: 'Reporter') -> str | None:
 
     try:
         reporter.download_anydesk(TMP_INSTALLER)
+        logger.info('Download concluído: %s (%d bytes)', TMP_INSTALLER, TMP_INSTALLER.stat().st_size)
     except Exception as exc:
-        logger.warning('Instalador AnyDesk indisponível no servidor: %s', exc)
+        logger.warning('Falha no download do AnyDesk: %s', exc, exc_info=True)
         return None
 
-    logger.info('Executando instalação silenciosa do AnyDesk...')
+    logger.info('Executando instalação silenciosa...')
     try:
-        # Rodar via cmd /c para contornar restrições de SYSTEM account
         result = subprocess.run(
             [
-                'cmd', '/c',
                 str(TMP_INSTALLER),
                 '--install', str(INSTALL_DIR),
                 '--start-with-win',
@@ -62,14 +62,16 @@ def ensure_anydesk(reporter: 'Reporter') -> str | None:
             timeout=INSTALL_TIMEOUT,
             capture_output=True,
         )
-        logger.info('AnyDesk installer saiu com código %d', result.returncode)
+        logger.info('AnyDesk installer exit code: %d', result.returncode)
+        if result.stdout:
+            logger.info('stdout: %s', result.stdout.decode(errors='replace'))
         if result.stderr:
-            logger.debug('AnyDesk stderr: %s', result.stderr.decode(errors='replace'))
+            logger.info('stderr: %s', result.stderr.decode(errors='replace'))
     except subprocess.TimeoutExpired:
         logger.warning('Timeout na instalação do AnyDesk (>%ds)', INSTALL_TIMEOUT)
         return None
     except Exception as exc:
-        logger.warning('Erro ao instalar AnyDesk: %s', exc)
+        logger.warning('Erro ao instalar AnyDesk: %s', exc, exc_info=True)
         return None
     finally:
         try:
@@ -77,20 +79,18 @@ def ensure_anydesk(reporter: 'Reporter') -> str | None:
         except Exception:
             pass
 
-    # Verificar se instalou mesmo que o exit code seja não-zero
     if not ANYDESK_EXE.exists():
-        logger.warning('AnyDesk não encontrado em %s após instalação', ANYDESK_EXE)
+        logger.warning('AnyDesk.exe não encontrado em %s após instalação — falhou', ANYDESK_EXE)
         return None
 
-    # Aguardar o serviço AnyDesk iniciar e criar system.conf com o ID
-    logger.info('Aguardando AnyDesk gerar ID (até %ds)...', ID_WAIT_MAX)
+    logger.info('AnyDesk instalado. Aguardando geração do ID (até %ds)...', ID_WAIT_MAX)
     from .specs import get_anydesk_id
     for _ in range(ID_WAIT_MAX // 5):
         time.sleep(5)
         anydesk_id = get_anydesk_id()
         if anydesk_id:
-            logger.info('AnyDesk instalado com sucesso — ID: %s', anydesk_id)
+            logger.info('AnyDesk ID obtido: %s', anydesk_id)
             return anydesk_id
 
-    logger.warning('AnyDesk instalado mas ID ainda não disponível após %ds', ID_WAIT_MAX)
+    logger.warning('AnyDesk instalado mas ID não gerado em %ds', ID_WAIT_MAX)
     return None
