@@ -24,6 +24,7 @@ Uso:
 
 import argparse
 import logging
+import logging.handlers
 import sys
 
 # Forçar UTF-8 no stdout para evitar caracteres quebrados no console Windows
@@ -34,19 +35,38 @@ if hasattr(sys.stdout, 'reconfigure'):
         pass
 
 
+import os
+
+_LOG_FILE = os.path.join(
+    os.environ.get('PROGRAMFILES', 'C:\\Program Files'),
+    'IN9Automacao', 'USBAgent', 'agent.log'
+)
+
+_fmt = logging.Formatter(
+    fmt='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+
 class _FlushHandler(logging.StreamHandler):
-    """StreamHandler que faz flush após cada registro — logs visíveis em tempo real."""
     def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
         self.flush()
 
+_handlers: list[logging.Handler] = [_FlushHandler(sys.stdout)]
 
-_handler = _FlushHandler(sys.stdout)
-_handler.setFormatter(logging.Formatter(
-    fmt='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-))
-logging.basicConfig(level=logging.INFO, handlers=[_handler])
+try:
+    _file_handler = logging.handlers.RotatingFileHandler(
+        _LOG_FILE, maxBytes=2 * 1024 * 1024, backupCount=2, encoding='utf-8'
+    )
+    _file_handler.setFormatter(_fmt)
+    _handlers.append(_file_handler)
+except Exception:
+    pass
+
+for _h in _handlers:
+    _h.setFormatter(_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=_handlers)
 logger = logging.getLogger('agent')
 
 
