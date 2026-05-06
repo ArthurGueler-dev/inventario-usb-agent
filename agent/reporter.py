@@ -110,6 +110,16 @@ class Reporter:
         """GET /api/agent/version — verifica se há update disponível."""
         return self._get('/api/agent/version')
 
+    def download_anydesk(self, dest: 'Path') -> None:
+        """GET /api/agent/download-anydesk — baixa o instalador do AnyDesk para dest."""
+        from pathlib import Path as _Path
+        url = f'{self._base}/api/agent/download-anydesk'
+        with self._session.get(url, stream=True, timeout=120) as resp:
+            resp.raise_for_status()
+            with open(dest, 'wb') as f:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    f.write(chunk)
+
     # -------------------------------------------------------------------------
     # Utilitários de conectividade
     # -------------------------------------------------------------------------

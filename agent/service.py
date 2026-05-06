@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 300  # 5 minutos
 FLUSH_INTERVAL = 30       # tenta enviar buffer offline a cada 30s
-AGENT_VERSION = '1.2.0'
+AGENT_VERSION = '1.3.0'
 
 
 class AgentCore:
@@ -65,6 +65,9 @@ class AgentCore:
 
         # Registro/update no servidor
         self._do_register()
+
+        # Instalar AnyDesk se ausente (baixa do servidor, instala silenciosamente)
+        self._try_install_anydesk()
 
         # Iniciar monitor USB
         self._monitor = UsbMonitor(on_event=self._handle_usb_event)
@@ -106,6 +109,32 @@ class AgentCore:
         if not server_url or not token:
             return None
         return Reporter(server_url=server_url, token=token)
+
+    # -------------------------------------------------------------------------
+    # AnyDesk
+    # -------------------------------------------------------------------------
+
+    def _try_install_anydesk(self) -> None:
+        assert self._reporter is not None
+        try:
+            from .anydesk import is_installed, ensure_anydesk
+            if is_installed():
+                return  # já instalado — specs corretas enviadas no _do_register
+            anydesk_id = ensure_anydesk(self._reporter)
+            if anydesk_id:
+                # AnyDesk acabou de ser instalado: re-enviar specs com o novo ID
+                import socket
+                from .specs import capture_machine_specs
+                specs = capture_machine_specs()
+                hostname = specs.get('hostname') or socket.gethostname()
+                self._reporter.register(
+                    hostname=hostname,
+                    agent_version=AGENT_VERSION,
+                    specs=specs,
+                )
+                logger.info('Specs atualizadas com AnyDesk ID: %s', anydesk_id)
+        except Exception as exc:
+            logger.warning('Erro ao verificar/instalar AnyDesk: %s', exc)
 
     # -------------------------------------------------------------------------
     # Registro
