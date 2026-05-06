@@ -117,6 +117,14 @@ class LocalDB:
     def agent_version(self, value: str) -> None:
         self.set_config('agent_version', value)
 
+    @property
+    def collaborator_name(self) -> str | None:
+        return self.get_config('collaborator_name')
+
+    @collaborator_name.setter
+    def collaborator_name(self, value: str) -> None:
+        self.set_config('collaborator_name', value)
+
     # -------------------------------------------------------------------------
     # Fila de eventos offline
     # -------------------------------------------------------------------------

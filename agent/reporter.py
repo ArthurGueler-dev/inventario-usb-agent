@@ -51,7 +51,14 @@ class Reporter:
     # Rotas do agente
     # -------------------------------------------------------------------------
 
-    def register_new(self, hostname: str, mac_address: str | None, bios_serial: str | None) -> dict[str, Any]:
+    def register_new(
+        self,
+        hostname: str,
+        mac_address: str | None,
+        bios_serial: str | None,
+        collaborator_name: str | None = None,
+        anydesk_id: str | None = None,
+    ) -> dict[str, Any]:
         """
         POST /api/agent/register/new — primeira instalação, sem token.
         Retorna machine_id e token gerado pelo servidor.
@@ -62,6 +69,10 @@ class Reporter:
             payload['mac_address'] = mac_address
         if bios_serial:
             payload['bios_serial'] = bios_serial
+        if collaborator_name:
+            payload['collaborator_name'] = collaborator_name
+        if anydesk_id:
+            payload['anydesk_id'] = anydesk_id
 
         # Esta rota é pública — não usa o header X-Agent-Token
         # O token é enviado no body para o servidor armazená-lo

@@ -5,12 +5,34 @@ Falha silenciosa: retorna dados parciais se algum subsistema falhar.
 Depende de wmi + psutil (Windows only).
 """
 
+import os
 import platform
+import re
 import socket
 import logging
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def get_anydesk_id() -> str | None:
+    """Lê o ID do AnyDesk a partir dos arquivos de configuração locais."""
+    candidates = [
+        Path(r'C:\ProgramData\AnyDesk\system.conf'),
+        Path(os.environ.get('APPDATA', '')) / 'AnyDesk' / 'system.conf',
+    ]
+    for conf_path in candidates:
+        try:
+            if not conf_path.exists():
+                continue
+            text = conf_path.read_text(encoding='utf-8', errors='ignore')
+            match = re.search(r'^id\s*=\s*(\d+)', text, re.MULTILINE)
+            if match:
+                return match.group(1)
+        except Exception:
+            pass
+    return None
 
 
 def capture_machine_specs() -> dict[str, Any]:
@@ -50,6 +72,11 @@ def capture_machine_specs() -> dict[str, Any]:
             specs['disks'] = _collect_disks_psutil(psutil)
         except Exception:
             pass
+
+    # AnyDesk ID (falha silenciosa se não instalado)
+    anydesk_id = get_anydesk_id()
+    if anydesk_id:
+        specs['anydesk_id'] = anydesk_id
 
     return specs
 
@@ -102,13 +129,30 @@ def _collect_wmi(c: Any, specs: dict[str, Any]) -> None:
     except Exception:
         pass
 
-    # MAC address (primeiro adaptador com endereço físico)
+    # MAC address + IPs locais
     try:
         adapters = c.Win32_NetworkAdapterConfiguration(IPEnabled=True)
+        local_ips: list[str] = []
         for a in adapters:
-            if a.MACAddress:
+            if a.MACAddress and 'mac_address' not in specs:
                 specs['mac_address'] = a.MACAddress
-                break
+            if a.IPAddress:
+                for ip in a.IPAddress:
+                    if ip and not ip.startswith('127.') and ':' not in ip:
+                        local_ips.append(ip)
+        if local_ips:
+            specs['local_ips'] = local_ips
+    except Exception:
+        pass
+
+    # Modelo e fabricante do computador
+    try:
+        cs = c.Win32_ComputerSystem()[0]
+        specs['computer_manufacturer'] = (cs.Manufacturer or '').strip()
+        specs['computer_model'] = (cs.Model or '').strip()
+        pc_type_map = {1: 'desktop', 2: 'notebook', 3: 'workstation', 4: 'enterprise_server',
+                       5: 'soho_server', 6: 'appliance_pc', 7: 'performance_server', 8: 'maximum'}
+        specs['pc_type'] = pc_type_map.get(cs.PCSystemType, 'unknown')
     except Exception:
         pass
 

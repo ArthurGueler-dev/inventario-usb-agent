@@ -111,7 +111,7 @@ def cmd_tray(args: argparse.Namespace) -> None:
 
 
 def cmd_config(args: argparse.Namespace) -> None:
-    """Salva server_url e token no SQLite local. Gera token automaticamente se não informado."""
+    """Salva server_url, token e nome do colaborador no SQLite local."""
     import secrets
     db = _get_db()
     if args.url:
@@ -124,6 +124,9 @@ def cmd_config(args: argparse.Namespace) -> None:
         token = secrets.token_hex(32)
         db.token = token
         print(f'token gerado automaticamente: ...{token[-8:]}')
+    if args.user_name:
+        db.collaborator_name = args.user_name
+        print(f'nome do colaborador salvo: {args.user_name}')
 
 
 def cmd_register_new(args: argparse.Namespace) -> None:
@@ -148,11 +151,15 @@ def cmd_register_new(args: argparse.Namespace) -> None:
     specs = capture_machine_specs()
     hostname = specs.get('hostname') or socket.gethostname()
 
+    collaborator_name = db.collaborator_name
+
     try:
         resp = reporter.register_new(
             hostname=hostname,
             mac_address=specs.get('mac_address'),
             bios_serial=specs.get('bios_serial'),
+            collaborator_name=collaborator_name,
+            anydesk_id=specs.get('anydesk_id'),
         )
         print('Registro OK:', resp)
         data = resp.get('data') or resp
@@ -200,8 +207,9 @@ def main() -> None:
     sub.add_parser('tray', help='Exibe ícone na bandeja (processo do usuário)')
 
     p_cfg = sub.add_parser('config', help='Salva configurações locais')
-    p_cfg.add_argument('--url',   help='URL do servidor')
-    p_cfg.add_argument('--token', help='Token do agente')
+    p_cfg.add_argument('--url',       help='URL do servidor')
+    p_cfg.add_argument('--token',     help='Token do agente')
+    p_cfg.add_argument('--user-name', help='Nome do colaborador responsável pela máquina')
 
     p_reg = sub.add_parser('register-new', help='Registra no servidor')
     p_reg.add_argument('--url',   help='URL do servidor')

@@ -50,9 +50,10 @@ Name: "{#DataDir}"; Permissions: everyone-full
 [Code]
 var
   ServerUrlPage: TInputQueryWizardPage;
+  CollaboratorPage: TInputQueryWizardPage;
 
 // ----------------------------------------------------------------------------
-// Página customizada: URL do servidor
+// Páginas customizadas: URL do servidor e nome do colaborador
 // ----------------------------------------------------------------------------
 procedure InitializeWizard;
 begin
@@ -64,6 +65,14 @@ begin
   );
   ServerUrlPage.Add('URL do servidor:', False);
   ServerUrlPage.Values[0] := 'https://inventario.in9automacao.com.br';
+
+  CollaboratorPage := CreateInputQueryPage(
+    ServerUrlPage.ID,
+    'Dados do Colaborador',
+    'Identifique o responsável por esta máquina (opcional).',
+    'Este campo pode ser preenchido depois via linha de comando.'
+  );
+  CollaboratorPage.Add('Nome do colaborador:', False);
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -85,9 +94,14 @@ begin
   Result := Trim(ServerUrlPage.Values[0]);
 end;
 
+function GetCollaboratorName(Param: String): String;
+begin
+  Result := Trim(CollaboratorPage.Values[0]);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ExePath, DataPath: String;
+  ExePath, DataPath, ConfigParams: String;
   ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
@@ -95,10 +109,13 @@ begin
     ExePath  := ExpandConstant('{app}\{#AppExeName}');
     DataPath := ExpandConstant('{#DataDir}');
 
-    // 1. Gerar token e salvar configuração
+    // 1. Gerar token e salvar configuração (URL + nome do colaborador se informado)
     Log('Configurando agente...');
+    ConfigParams := 'config --url "' + GetServerUrl('') + '"';
+    if GetCollaboratorName('') <> '' then
+      ConfigParams := ConfigParams + ' --user-name "' + GetCollaboratorName('') + '"';
     if not Exec(ExePath,
-      'config --url "' + GetServerUrl('') + '"',
+      ConfigParams,
       ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
     begin
       Log('Aviso: falha ao salvar configuração (código ' + IntToStr(ResultCode) + ')');
