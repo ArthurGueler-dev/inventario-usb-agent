@@ -6,7 +6,7 @@
 ; Ou via build\build_installer.bat
 
 #define AppName      "IN9 USB Agent"
-#define AppVersion   "1.1.0"
+#define AppVersion   "1.3.0"
 #define AppPublisher "IN9 Automacao"
 #define AppExeName   "usb_agent.exe"
 #define ServiceName  "IN9USBAgent"
@@ -142,7 +142,14 @@ begin
     // 4. Configurar PYTHONPATH no registro do serviço (necessário para pywin32)
     // Não necessário quando usando PyInstaller (todas as DLLs estão no .exe)
 
-    // 5. Iniciar serviço
+    // 5. Configurar início automático com o Windows
+    Log('Configurando início automático...');
+    Exec('sc.exe',
+      'config {#ServiceName} start= auto',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Log('sc config auto código: ' + IntToStr(ResultCode));
+
+    // 6. Iniciar serviço
     Log('Iniciando serviço...');
     Exec('sc.exe',
       'start {#ServiceName}',
