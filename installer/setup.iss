@@ -128,7 +128,14 @@ begin
       ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Log('register-new código: ' + IntToStr(ResultCode));
 
-    // 3. Instalar serviço Windows
+    // 3. Instalar AnyDesk (se o instalador estiver disponível no servidor)
+    Log('Instalando AnyDesk...');
+    Exec(ExePath,
+      'install-anydesk',
+      ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Log('install-anydesk código: ' + IntToStr(ResultCode));
+
+    // 5. Instalar serviço Windows
     Log('Instalando serviço Windows...');
     if not Exec(ExePath,
       'install',
@@ -139,17 +146,14 @@ begin
       Exit;
     end;
 
-    // 4. Configurar PYTHONPATH no registro do serviço (necessário para pywin32)
-    // Não necessário quando usando PyInstaller (todas as DLLs estão no .exe)
-
-    // 5. Configurar início automático com o Windows
+    // 6. Configurar início automático com o Windows
     Log('Configurando início automático...');
     Exec('sc.exe',
       'config {#ServiceName} start= auto',
       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Log('sc config auto código: ' + IntToStr(ResultCode));
 
-    // 6. Iniciar serviço
+    // 7. Iniciar serviço
     Log('Iniciando serviço...');
     Exec('sc.exe',
       'start {#ServiceName}',

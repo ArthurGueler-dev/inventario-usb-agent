@@ -66,8 +66,8 @@ class AgentCore:
         # Registro/update no servidor
         self._do_register()
 
-        # Instalar AnyDesk se ausente (baixa do servidor, instala silenciosamente)
-        self._try_install_anydesk()
+        # Instalar AnyDesk se ausente — em thread para não bloquear startup do serviço
+        threading.Thread(target=self._try_install_anydesk, daemon=True, name='AnydeskInstallThread').start()
 
         # Iniciar monitor USB
         self._monitor = UsbMonitor(on_event=self._handle_usb_event)

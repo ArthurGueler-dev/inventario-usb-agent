@@ -173,6 +173,32 @@ def cmd_register_new(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_install_anydesk(args: argparse.Namespace) -> None:
+    """Baixa e instala AnyDesk do servidor de inventário (silencioso)."""
+    from .local_db import LocalDB
+    from .reporter import Reporter
+    from .anydesk import ensure_anydesk, is_installed
+
+    if is_installed():
+        print('AnyDesk já está instalado.')
+        return
+
+    db = LocalDB()
+    url = db.server_url
+    token = db.token
+    if not url or not token:
+        print('Erro: agente não configurado. Execute "config" primeiro.')
+        sys.exit(1)
+
+    reporter = Reporter(server_url=url, token=token)
+    print('Baixando e instalando AnyDesk...')
+    anydesk_id = ensure_anydesk(reporter)
+    if anydesk_id:
+        print(f'AnyDesk instalado — ID: {anydesk_id}')
+    else:
+        print('AnyDesk não instalado (instalador pode não estar disponível no servidor).')
+
+
 def cmd_service(args: argparse.Namespace) -> None:
     """Delega ao win32serviceutil para instalar/start/stop/remove o serviço."""
     from .service import _HAS_WIN32, IN9USBAgentService
@@ -215,6 +241,8 @@ def main() -> None:
     p_reg.add_argument('--url',   help='URL do servidor')
     p_reg.add_argument('--token', help='Token do agente')
 
+    sub.add_parser('install-anydesk', help='Baixa e instala AnyDesk do servidor')
+
     for action in ('install', 'start', 'stop', 'remove', 'restart'):
         p = sub.add_parser(action, help=f'Windows Service: {action}')
         p.set_defaults(action=action)
@@ -229,6 +257,8 @@ def main() -> None:
         cmd_config(args)
     elif args.command == 'register-new':
         cmd_register_new(args)
+    elif args.command == 'install-anydesk':
+        cmd_install_anydesk(args)
     else:
         cmd_service(args)
 
