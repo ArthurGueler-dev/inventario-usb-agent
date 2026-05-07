@@ -194,14 +194,16 @@ def cmd_register_new(args: argparse.Namespace) -> None:
 
 
 def cmd_install_anydesk(args: argparse.Namespace) -> None:
-    """Baixa e instala AnyDesk do servidor de inventário (silencioso)."""
+    """
+    Garante que o AnyDesk ID chegue ao servidor:
+      Caso 1: AnyDesk já instalado → captura ID e re-registra
+      Caso 2: AnyDesk não instalado → instala, captura ID e re-registra
+    """
+    import socket
     from .local_db import LocalDB
     from .reporter import Reporter
     from .anydesk import ensure_anydesk, is_installed
-
-    if is_installed():
-        print('AnyDesk já está instalado.')
-        return
+    from .specs import get_anydesk_id, capture_machine_specs
 
     db = LocalDB()
     url = db.server_url
@@ -211,12 +213,34 @@ def cmd_install_anydesk(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     reporter = Reporter(server_url=url, token=token)
-    print('Baixando e instalando AnyDesk...')
-    anydesk_id = ensure_anydesk(reporter)
-    if anydesk_id:
-        print(f'AnyDesk instalado — ID: {anydesk_id}')
+
+    if is_installed():
+        anydesk_id = get_anydesk_id()
+        if anydesk_id:
+            print(f'AnyDesk já instalado — ID: {anydesk_id}')
+        else:
+            print('AnyDesk instalado mas ID ainda não disponível em service.conf')
     else:
-        print('AnyDesk não instalado (instalador pode não estar disponível no servidor).')
+        print('Baixando e instalando AnyDesk...')
+        anydesk_id = ensure_anydesk(reporter)
+        if anydesk_id:
+            print(f'AnyDesk instalado — ID: {anydesk_id}')
+        else:
+            print('AnyDesk não instalado (instalador pode não estar disponível no servidor).')
+
+    # Sempre que tivermos um ID, re-registrar para garantir que o servidor saiba
+    if anydesk_id:
+        try:
+            specs = capture_machine_specs()
+            hostname = specs.get('hostname') or socket.gethostname()
+            reporter.register(
+                hostname=hostname,
+                agent_version='1.3.10',
+                specs=specs,
+            )
+            print(f'Servidor atualizado com AnyDesk ID: {anydesk_id}')
+        except Exception as exc:
+            print(f'Aviso: falha ao re-registrar com AnyDesk ID ({exc}) — serviço retentará no heartbeat')
 
 
 def cmd_service(args: argparse.Namespace) -> None:

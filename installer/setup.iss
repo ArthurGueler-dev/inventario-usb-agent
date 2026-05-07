@@ -121,15 +121,15 @@ begin
       Log('Aviso: falha ao salvar configuração (código ' + IntToStr(ResultCode) + ')');
     end;
 
-    // 2. Registrar no servidor (pode falhar se offline — serviço tentará ao iniciar)
+    // 2. Registrar no servidor (token agora válido para chamadas autenticadas)
     Log('Registrando no servidor...');
     Exec(ExePath,
       'register-new',
       ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Log('register-new código: ' + IntToStr(ResultCode));
 
-    // 3. Instalar AnyDesk (se o instalador estiver disponível no servidor)
-    Log('Instalando AnyDesk...');
+    // 3. Instalar AnyDesk + re-register com anydesk_id (cobre caso 1 e caso 2)
+    Log('Instalando AnyDesk e capturando ID...');
     Exec(ExePath,
       'install-anydesk',
       ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);

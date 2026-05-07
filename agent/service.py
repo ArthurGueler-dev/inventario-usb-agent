@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 300  # 5 minutos
 FLUSH_INTERVAL = 30       # tenta enviar buffer offline a cada 30s
-AGENT_VERSION = '1.3.8'
+AGENT_VERSION = '1.3.10'
 
 
 class AgentCore:
@@ -115,26 +115,42 @@ class AgentCore:
     # -------------------------------------------------------------------------
 
     def _try_install_anydesk(self) -> None:
+        """
+        Garante que o servidor tenha o AnyDesk ID:
+          - Se AnyDesk já instalado → captura ID e re-registra (caso 1)
+          - Se não instalado → instala, captura e re-registra (caso 2)
+        """
         assert self._reporter is not None
         try:
             from .anydesk import is_installed, ensure_anydesk
-            if is_installed():
-                return  # já instalado — specs corretas enviadas no _do_register
-            anydesk_id = ensure_anydesk(self._reporter)
+            from .specs import get_anydesk_id, capture_machine_specs
+
+            already_installed = is_installed()
+            if already_installed:
+                anydesk_id = get_anydesk_id()
+                logger.info('AnyDesk já instalado — ID capturado: %s', anydesk_id or 'não disponível')
+            else:
+                logger.info('AnyDesk não instalado — iniciando instalação...')
+                anydesk_id = ensure_anydesk(self._reporter)
+
+            # Em ambos os casos, se temos um ID, garantir que o servidor saiba
             if anydesk_id:
-                # AnyDesk acabou de ser instalado: re-enviar specs com o novo ID
                 import socket
-                from .specs import capture_machine_specs
                 specs = capture_machine_specs()
                 hostname = specs.get('hostname') or socket.gethostname()
-                self._reporter.register(
-                    hostname=hostname,
-                    agent_version=AGENT_VERSION,
-                    specs=specs,
-                )
-                logger.info('Specs atualizadas com AnyDesk ID: %s', anydesk_id)
+                try:
+                    self._reporter.register(
+                        hostname=hostname,
+                        agent_version=AGENT_VERSION,
+                        specs=specs,
+                    )
+                    logger.info('Servidor atualizado com AnyDesk ID: %s', anydesk_id)
+                except Exception as reg_exc:
+                    logger.warning('Falha ao re-registrar com AnyDesk ID: %s', reg_exc)
+            elif already_installed:
+                logger.warning('AnyDesk instalado mas service.conf ainda não tem ID — tentará novamente no próximo heartbeat')
         except Exception as exc:
-            logger.warning('Erro ao verificar/instalar AnyDesk: %s', exc)
+            logger.warning('Erro ao verificar/instalar AnyDesk: %s', exc, exc_info=True)
 
     # -------------------------------------------------------------------------
     # Registro
