@@ -110,6 +110,18 @@ class Reporter:
         """GET /api/agent/version — verifica se há update disponível."""
         return self._get('/api/agent/version')
 
+    def report_health(self, code: str, level: str = 'info', message: str | None = None, context: dict[str, Any] | None = None) -> None:
+        """POST /api/agent/health-report — reporta erro/evento interno. Falha silenciosa."""
+        try:
+            self._post('/api/agent/health-report', {
+                'level':   level,
+                'code':    code,
+                'message': message,
+                'context': context,
+            })
+        except Exception:
+            pass  # Telemetria não pode quebrar o fluxo principal
+
     def download_anydesk(self, dest: 'Path') -> None:
         """GET /api/agent/download-anydesk — baixa o instalador do AnyDesk para dest."""
         from pathlib import Path as _Path

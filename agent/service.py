@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL = 300  # 5 minutos
 FLUSH_INTERVAL = 30       # tenta enviar buffer offline a cada 30s
-AGENT_VERSION = '1.3.12'
+AGENT_VERSION = '1.3.13'
 
 
 class AgentCore:
@@ -132,6 +132,12 @@ class AgentCore:
             else:
                 logger.info('AnyDesk não instalado — iniciando instalação...')
                 anydesk_id = ensure_anydesk(self._reporter)
+                if not anydesk_id:
+                    self._reporter.report_health(
+                        code='anydesk_install_failed',
+                        level='warning',
+                        message='Tentativa de instalar AnyDesk falhou (download ou install)',
+                    )
 
             # Em ambos os casos, se temos um ID, garantir que o servidor saiba
             if anydesk_id:
@@ -149,8 +155,21 @@ class AgentCore:
                     logger.warning('Falha ao re-registrar com AnyDesk ID: %s', reg_exc)
             elif already_installed:
                 logger.warning('AnyDesk instalado mas service.conf ainda não tem ID — tentará novamente no próximo heartbeat')
+                self._reporter.report_health(
+                    code='anydesk_id_missing',
+                    level='info',
+                    message='AnyDesk instalado mas ID ainda não disponível',
+                )
         except Exception as exc:
             logger.warning('Erro ao verificar/instalar AnyDesk: %s', exc, exc_info=True)
+            try:
+                self._reporter.report_health(
+                    code='anydesk_check_exception',
+                    level='error',
+                    message=str(exc),
+                )
+            except Exception:
+                pass
 
     # -------------------------------------------------------------------------
     # Registro

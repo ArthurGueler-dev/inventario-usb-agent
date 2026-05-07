@@ -235,7 +235,7 @@ def cmd_install_anydesk(args: argparse.Namespace) -> None:
             hostname = specs.get('hostname') or socket.gethostname()
             reporter.register(
                 hostname=hostname,
-                agent_version='1.3.12',
+                agent_version='1.3.13',
                 specs=specs,
             )
             print(f'Servidor atualizado com AnyDesk ID: {anydesk_id}')
