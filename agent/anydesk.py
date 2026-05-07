@@ -57,6 +57,8 @@ def ensure_anydesk(reporter: 'Reporter') -> str | None:
                 str(TMP_INSTALLER),
                 '--install', str(INSTALL_DIR),
                 '--start-with-win',
+                '--create-shortcuts',
+                '--create-desktop-icon',
                 '--silent',
             ],
             timeout=INSTALL_TIMEOUT,
