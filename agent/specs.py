@@ -24,14 +24,24 @@ def get_anydesk_id() -> str | None:
         Path(os.environ.get('APPDATA', '')) / 'AnyDesk' / 'service.conf',
         Path(os.environ.get('APPDATA', '')) / 'AnyDesk' / 'system.conf',
     ]
+    # Padrões observados no AnyDesk Windows:
+    #   ad.anynet.id=1021461089   (system.conf — modo serviço, mais comum)
+    #   ad.web.id=...             (algumas versões)
+    #   id=...                    (modo portable em versões antigas)
+    patterns = [
+        re.compile(r'^ad\.anynet\.id\s*=\s*(\d+)', re.MULTILINE),
+        re.compile(r'^ad\.web\.id\s*=\s*(\d+)', re.MULTILINE),
+        re.compile(r'^id\s*=\s*(\d+)', re.MULTILINE),
+    ]
     for conf_path in candidates:
         try:
             if not conf_path.exists():
                 continue
             text = conf_path.read_text(encoding='utf-8', errors='ignore')
-            match = re.search(r'^id\s*=\s*(\d+)', text, re.MULTILINE)
-            if match:
-                return match.group(1)
+            for pat in patterns:
+                match = pat.search(text)
+                if match:
+                    return match.group(1)
         except Exception:
             pass
     return None
