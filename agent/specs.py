@@ -61,13 +61,34 @@ def capture_machine_specs() -> dict[str, Any]:
         pass
 
     # Tentar wmi (Windows) — importação lazy para não travar em Linux/dev
+    # CoInitialize é OBRIGATÓRIO quando rodamos como Windows Service (conta SYSTEM)
+    # ou em qualquer thread que não tenha COM inicializado.
+    pythoncom_module = None
+    com_initialized = False
+    try:
+        import pythoncom  # type: ignore[import]
+        pythoncom_module = pythoncom
+        try:
+            pythoncom.CoInitialize()
+            com_initialized = True
+        except Exception:
+            pass  # já inicializado é OK
+    except ImportError:
+        pass
+
     try:
         import wmi  # type: ignore[import]
         c = wmi.WMI()
         _collect_wmi(c, specs)
     except Exception as exc:
-        logger.debug('wmi indisponível (%s) — usando fallbacks', exc)
+        logger.warning('WMI falhou ao capturar specs: %s', exc, exc_info=True)
         specs['os'] = platform.version()
+    finally:
+        if com_initialized and pythoncom_module is not None:
+            try:
+                pythoncom_module.CoUninitialize()
+            except Exception:
+                pass
 
     # RAM via psutil (funciona em Windows e Linux)
     if 'ram_gb' not in specs:
