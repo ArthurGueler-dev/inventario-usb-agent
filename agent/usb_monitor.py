@@ -159,6 +159,9 @@ class UsbMonitor:
         '064E',  # Suyin (Webcam integrada)
         '174F',  # Syntek (Webcam integrada)
         '1BCF',  # Sunplus (Webcam integrada)
+        '3277',  # Sonix Technology (Webcam integrada — laptops Samsung)
+        '0408',  # Quanta (Webcam integrada)
+        '058F',  # Alcor Micro (Webcam/leitor SD integrado)
     }
 
     @staticmethod
