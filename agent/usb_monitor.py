@@ -145,6 +145,22 @@ class UsbMonitor:
     # filhos HID serão reportados em seguida com CompatibleIDs mais precisos.
     _USB_CLASS_GUID = '{36FC9E60-C465-11CF-8056-444553540000}'
 
+    # VID/PID de dispositivos integrados ao laptop (não são periféricos plugáveis).
+    # Filtra Bluetooth Intel/Realtek/Qualcomm e webcams integradas comuns.
+    _INTEGRATED_VIDS: set[str] = {
+        '8087',  # Intel (Bluetooth integrado)
+        '0489',  # Foxconn (Bluetooth integrado em vários laptops)
+        '04CA',  # Lite-On (Bluetooth integrado)
+        '0BDA',  # Realtek (Bluetooth/Webcam integrados)
+        '13D3',  # IMC Networks (Webcam integrada)
+        '5986',  # Acer/Bison (Webcam integrada)
+        '04F2',  # Chicony Electronics (Webcam integrada)
+        '0C45',  # Microdia (Webcam integrada)
+        '064E',  # Suyin (Webcam integrada)
+        '174F',  # Syntek (Webcam integrada)
+        '1BCF',  # Sunplus (Webcam integrada)
+    }
+
     @staticmethod
     def _refetch(c: object, event: object) -> object:
         """
@@ -186,6 +202,10 @@ class UsbMonitor:
 
         # HID não-USB (PS/2 via HID layer, etc.) não têm VID/PID reais — ignorar
         if prefix == 'HID' and vid == '0000' and pid == '0000':
+            return
+
+        # Filtrar dispositivos integrados ao laptop (Bluetooth/Webcam de fábrica)
+        if vid.upper() in self._INTEGRATED_VIDS:
             return
         friendly_name: str | None = getattr(pnp_entity, 'Name', None)
         class_guid: str | None = getattr(pnp_entity, 'ClassGuid', None)
