@@ -16,6 +16,60 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Palavras na Description do adaptador que indicam rede virtual/VPN — devem ser ignoradas
+# ao escolher o IP da máquina. Match case-insensitive em substring.
+_VIRTUAL_ADAPTER_KEYWORDS = (
+    'hyper-v', 'virtual', 'vethernet', 'vmware', 'virtualbox', 'vbox',
+    'wsl', 'docker', 'tap-windows', 'openvpn', 'tunnel', 'tunneling',
+    'loopback', 'pseudo-interface', 'teredo', 'isatap', 'bluetooth',
+    'wan miniport',
+)
+
+
+def _is_virtual_adapter(description: str | None) -> bool:
+    if not description:
+        return False
+    desc = description.lower()
+    return any(kw in desc for kw in _VIRTUAL_ADAPTER_KEYWORDS)
+
+
+def _is_routable_ipv4(ip: str) -> bool:
+    """Filtra loopback (127.x), APIPA (169.254.x) e qualquer coisa não-IPv4."""
+    if not ip or ':' in ip:
+        return False
+    if ip.startswith('127.') or ip.startswith('169.254.'):
+        return False
+    parts = ip.split('.')
+    if len(parts) != 4:
+        return False
+    try:
+        return all(0 <= int(p) <= 255 for p in parts)
+    except ValueError:
+        return False
+
+
+def get_primary_ip() -> str | None:
+    """
+    Retorna o IP da interface que o Windows usaria para sair pra internet.
+
+    Truque: cria um socket UDP e chama connect() para um endereço externo.
+    Nenhum pacote é enviado, mas o stack TCP/IP escolhe o adaptador conforme
+    a tabela de rotas e revela o IP de origem via getsockname(). Esse IP
+    sempre será o da rede física principal (faixa da empresa) — nunca o de
+    adaptadores virtuais inativos.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.settimeout(0.5)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+    return ip if _is_routable_ipv4(ip) else None
+
+
 def get_anydesk_id() -> str | None:
     """Lê o ID do AnyDesk a partir dos arquivos de configuração locais."""
     candidates = [
@@ -163,18 +217,50 @@ def _collect_wmi(c: Any, specs: dict[str, Any]) -> None:
         pass
 
     # MAC address + IPs locais
+    # Estratégia:
+    #   1. primary_ip = IP da interface com rota pra internet (nunca é virtual)
+    #   2. local_ips = todos os IPv4 routable, mas filtrando adaptadores virtuais
+    #      (Hyper-V, Docker, WSL, VPN, etc.) — primary_ip vai em primeiro.
+    #   3. mac_address = MAC do adaptador físico que carrega o primary_ip.
+    primary_ip = get_primary_ip()
+    if primary_ip:
+        specs['primary_ip'] = primary_ip
+
     try:
         adapters = c.Win32_NetworkAdapterConfiguration(IPEnabled=True)
-        local_ips: list[str] = []
+        physical_ips: list[str] = []
+        primary_mac: str | None = None
+        fallback_mac: str | None = None
         for a in adapters:
-            if a.MACAddress and 'mac_address' not in specs:
-                specs['mac_address'] = a.MACAddress
-            if a.IPAddress:
-                for ip in a.IPAddress:
-                    if ip and not ip.startswith('127.') and ':' not in ip:
-                        local_ips.append(ip)
-        if local_ips:
-            specs['local_ips'] = local_ips
+            description = getattr(a, 'Description', None)
+            is_virtual = _is_virtual_adapter(description)
+            adapter_ips = [ip for ip in (a.IPAddress or ()) if _is_routable_ipv4(ip)]
+
+            if a.MACAddress:
+                if primary_ip and primary_ip in adapter_ips and not primary_mac:
+                    primary_mac = a.MACAddress
+                if not is_virtual and not fallback_mac:
+                    fallback_mac = a.MACAddress
+
+            if is_virtual:
+                continue
+            for ip in adapter_ips:
+                if ip not in physical_ips:
+                    physical_ips.append(ip)
+
+        chosen_mac = primary_mac or fallback_mac
+        if chosen_mac:
+            specs['mac_address'] = chosen_mac
+
+        # primary_ip sempre primeiro, depois os demais físicos
+        ordered: list[str] = []
+        if primary_ip:
+            ordered.append(primary_ip)
+            if primary_ip in physical_ips:
+                physical_ips.remove(primary_ip)
+        ordered.extend(physical_ips)
+        if ordered:
+            specs['local_ips'] = ordered
     except Exception:
         pass
 
@@ -236,6 +322,12 @@ def get_runtime_stats() -> dict[str, Any]:
         stats['disk_free_gb'] = round(usage.free / (1024 ** 3), 1)
     except Exception as exc:
         logger.debug('psutil indisponível para runtime stats: %s', exc)
+
+    # primary_ip a cada heartbeat — mantém o servidor com IP atual quando a
+    # máquina troca de rede (cabo ↔ wifi, escritório ↔ home office).
+    primary_ip = get_primary_ip()
+    if primary_ip:
+        stats['primary_ip'] = primary_ip
 
     try:
         import win32api  # type: ignore[import]
